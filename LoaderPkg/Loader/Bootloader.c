@@ -115,6 +115,89 @@ InitGraphics (
   //
 
   //
+  // Find the maximum resolution mode
+  //
+
+  UINT32 CONST MaxMode = GraphicsOutput->Mode->MaxMode;
+  UINT32       MaxResolutionMode = 0;
+  UINT32       MaxResolution = 0;
+  BOOLEAN      FoundAnyMode = FALSE;
+
+  UINT32 CONST MaxAvailResolutionVal = 1280 * 720;
+
+  DEBUG ((DEBUG_VERBOSE, "JOS: Scanning %d available graphics modes\n", MaxMode));
+
+  for (UINT32 ModeNumber = 0; ModeNumber < MaxMode; ModeNumber++) {
+    UINTN SizeOfInfo;
+    EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *ModeInfo;
+
+    // Query information about this graphics mode
+    Status = GraphicsOutput->QueryMode (
+               GraphicsOutput,
+               ModeNumber,
+               &SizeOfInfo,
+               &ModeInfo
+               );
+
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "JOS: Mode %d not available: %r\n", ModeNumber, Status));
+      continue;
+    }
+
+    // Valid mode is found
+    FoundAnyMode = TRUE;
+
+    // Calculate total pixels for this mode
+    UINT32 CurrentResolution = ModeInfo->HorizontalResolution * ModeInfo->VerticalResolution;
+
+    DEBUG ((DEBUG_VERBOSE, "JOS: Mode %d: %dx%d (%d pixels), Pixels Per Scan Line: %d\n",
+            ModeNumber,
+            ModeInfo->HorizontalResolution,
+            ModeInfo->VerticalResolution,
+            CurrentResolution,
+            ModeInfo->PixelsPerScanLine));
+
+    // Update max resolution mode if we found higher resolution
+    if (CurrentResolution > MaxResolution && CurrentResolution <= MaxAvailResolutionVal) {
+      MaxResolution = CurrentResolution;
+      MaxResolutionMode = ModeNumber;
+      DEBUG ((DEBUG_VERBOSE, "JOS: New max resolution mode: %d (%dx%d)\n",
+              MaxResolutionMode,
+              ModeInfo->HorizontalResolution,
+              ModeInfo->VerticalResolution));
+    }
+
+    // Free the buffer allocated by QueryMode
+    gBS->FreePool (ModeInfo);
+  }
+
+  //
+  // Check if we found ANY working mode
+  //
+  if (!FoundAnyMode) {
+      DEBUG ((DEBUG_ERROR, "JOS: No graphics modes available at all!\n"));
+      return EFI_DEVICE_ERROR;
+  }
+
+  //
+  // Switch to the max resolution resolution mode
+  //
+  if (MaxResolution > 0) {
+
+    Status = GraphicsOutput->SetMode (GraphicsOutput, MaxResolutionMode);
+
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "JOS: Failed to set mode %d: %r\n", MaxResolutionMode, Status));
+      return Status;
+    } else {
+      DEBUG ((DEBUG_INFO, "JOS:  Graphics mode %d set successfully\n", MaxResolutionMode));
+    }
+  } else {
+    DEBUG ((DEBUG_ERROR, "JOS: No suitable graphics modes found\n"));
+    return EFI_UNSUPPORTED;
+  }
+
+  //
   // Fill screen with black.
   //
   GraphicsOutput->Blt (
@@ -275,7 +358,12 @@ GetKernelFile (
   // get loader's containing device.
   //
   // LAB 1: Your code here
-  (void)LoadedImage;
+
+  Status = gBS->HandleProtocol (
+                gImageHandle,
+                &gEfiLoadedImageProtocolGuid,
+                (VOID **)&LoadedImage
+                );
 
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "JOS: Cannot find LoadedImage protocol - %r\n", Status));
@@ -293,7 +381,12 @@ GetKernelFile (
   // to read the kernel from it later.
   //
   // LAB 1: Your code here
-  (void)FileSystem;
+
+  Status = gBS->HandleProtocol (
+                  LoadedImage->DeviceHandle,
+                  &gEfiSimpleFileSystemProtocolGuid,
+                  (VOID **)&FileSystem
+                  );
 
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "JOS: Cannot find own FileSystem protocol - %r\n", Status));
@@ -305,7 +398,8 @@ GetKernelFile (
   // NOTE: Don't forget to Use ->Close after you've done using it.
   //
   // LAB 1: Your code here
-  (void)CurrentDriveRoot;
+
+  Status = FileSystem->OpenVolume (FileSystem, &CurrentDriveRoot);
 
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "JOS: Cannot access own file system - %r\n", Status));
@@ -319,8 +413,20 @@ GetKernelFile (
   // LAB 1: Your code here
   KernelFile = NULL;
 
+  Status = CurrentDriveRoot->Open (
+                               CurrentDriveRoot,
+                               &KernelFile,
+                               KERNEL_PATH,
+                               EFI_FILE_MODE_READ,
+                               0
+                               );
+
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "JOS: Cannot access own file system - %r\n", Status));
+
+    // Close the root directory before returning error
+    CurrentDriveRoot->Close (CurrentDriveRoot);
+
     return Status;
   }
 
@@ -987,7 +1093,7 @@ UefiMain (
   UINTN              EntryPoint;
   VOID               *GateData;
 
-#if 1 ///< Uncomment to await debugging
+#if 0 ///< Uncomment to await debugging
   volatile BOOLEAN   Connected;
   DEBUG ((DEBUG_INFO, "JOS: Awaiting debugger connection\n"));
 
