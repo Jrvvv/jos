@@ -18,6 +18,7 @@
 /* Functions implementing monitor commands */
 int mon_help(int argc, char **argv, struct Trapframe *tf);
 int mon_kerninfo(int argc, char **argv, struct Trapframe *tf);
+int mon_hello(int argc, char **argv, struct Trapframe *tf);
 int mon_backtrace(int argc, char **argv, struct Trapframe *tf);
 
 struct Command {
@@ -30,6 +31,7 @@ struct Command {
 static struct Command commands[] = {
         {"help", "Display this list of commands", mon_help},
         {"kerninfo", "Display information about the kernel", mon_kerninfo},
+        {"hello", "Display hello message", mon_hello},
         {"backtrace", "Print stack backtrace", mon_backtrace},
 };
 #define NCOMMANDS (sizeof(commands) / sizeof(commands[0]))
@@ -38,6 +40,7 @@ static struct Command commands[] = {
 
 int
 mon_help(int argc, char **argv, struct Trapframe *tf) {
+int mon_kerninfo(int argc, char **argv, struct Trapframe *tf);
     for (size_t i = 0; i < NCOMMANDS; i++)
         cprintf("%s - %s\n", commands[i].name, commands[i].desc);
     return 0;
@@ -54,6 +57,12 @@ mon_kerninfo(int argc, char **argv, struct Trapframe *tf) {
     cprintf("  edata   %16lx (virt)  %16lx (phys)\n", (unsigned long)edata, (unsigned long)edata - KERN_BASE_ADDR);
     cprintf("  end     %16lx (virt)  %16lx (phys)\n", (unsigned long)end, (unsigned long)end - KERN_BASE_ADDR);
     cprintf("Kernel executable memory footprint: %luKB\n", (unsigned long)ROUNDUP(end - entry, 1024) / 1024);
+    return 0;
+}
+
+int
+mon_hello(int argc, char **argv, struct Trapframe *tf) {
+    cprintf("Hello from monitor!\n");
     return 0;
 }
 

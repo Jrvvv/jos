@@ -92,38 +92,82 @@ ASM_PFX(CallKernelThroughGateAsm):
     mov [eax], ecx
 
     ; 1. Disable paging.
-    ; LAB 2: Your code here:
+    ; Paging must be disabled before transitioning to long mode
+    ; because the page table format differs between protected mode and long mode.
+    mov eax, cr0
+    and eax, ~(1 << 31)  ; Clear PG bit (bit 31) to disable paging
+    mov cr0, eax
 
     ; 2. Switch to our GDT that supports 64-bit mode and update CS to LINEAR_CODE_SEL.
-    ; LAB 2: Your code here:
+    ; Load custom GDT descriptor that includes 64-bit code/data segments
+    lgdt [GDT_DESCRIPTOR]
+
+    ; Perform far jump to update CS register (cannot be done with mov)
+    ; This switches to our linear code segment in 32-bit protected mode
+    jmp LINEAR_CODE_SEL:AsmWithOurGdt
 
 AsmWithOurGdt:
 
     ; 3. Reset all the data segment registers to linear mode (LINEAR_DATA_SEL).
-    ; LAB 2: Your code here:
+    ; Update all data segment registers to use our linear data segment
+    mov ax, LINEAR_DATA_SEL
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
 
     ; 4. Enable PAE/PGE in CR4, which is required to transition to long mode.
-    ; This may already be enabled by the firmware but is not guaranteed.
-    ; LAB 2: Your code here:
+    ; PAE (Physical Address Extension) is required for long mode paging
+    ; PGE (Page Global Enable) allows frequently used or shared pages to be marked
+    ; as global to all users
+    mov eax, cr4
+    or eax, (1 << 5)    ; Set PAE bit (bit 5)
+    or eax, (1 << 7)    ; Uncomment to also set PGE bit (bit 7) if needed
+    mov cr4, eax
 
     ; 5. Update page table address register (CR3) right away with the supplied PAGE_TABLE.
     ; This does nothing as paging is off at the moment as paging is disabled.
-    ; LAB 2: Your code here:
+    ; Load the page table address that was passed by the bootloader
+    mov eax, [PAGE_TABLE]
+    mov cr3, eax
 
     ; 6. Enable long mode (LME) and execute protection (NXE) via the EFER MSR register.
-    ; LAB 2: Your code here:
+    ; EFER (Extended Feature Enable Register) MSR number is 0xC0000080
+    ; LME (Long Mode Enable) is bit 8
+    ; NXE (No-Execute Enable) is bit 11
+    mov ecx, 0xC0000080  ; EFER MSR number
+    rdmsr                ; Read current EFER value
+    or eax, (1 << 8)     ; Set LME bit (bit 8)
+    or eax, (1 << 11)    ; Set NXE bit (bit 11) for execute protection
+    wrmsr                ; Write back to EFER MSR
 
     ; 7. Enable paging as it is required in 64-bit mode.
-    ; LAB 2: Your code here:
+    ; Re-enable paging with additional protection bits
+    mov eax, cr0
+    or eax, (1 << 31)   ; Set PG bit (bit 31) to enable paging
+    or eax, (1 << 16)   ; Set WP bit (bit 16) for write protection
+    or eax, (1 << 18)   ; Set AM bit (bit 18) for alignment mask
+    or eax, (1 << 29)   ; Set NW bit (bit 29) and CD bit (bit 30) if needed
+    mov cr0, eax
 
     ; 8. Transition to 64-bit mode by updating CS with LINEAR_CODE64_SEL.
-    ; LAB 2: Your code here:
+    ; Perform far jump to switch to 64-bit code segment
+    ; This is the actual transition point to long mode
+    jmp LINEAR_CODE64_SEL:AsmInLongMode
 
 AsmInLongMode:
     BITS 64
 
     ; 9. Reset all the data segment registers to linear 64-bit mode (LINEAR_DATA64_SEL).
-    ; LAB 2: Your code here:
+    ; In long mode, segment registers are mostly ignored, but we set them properly
+    ; Use 64-bit registers and the flat memory model
+    mov ax, LINEAR_DATA64_SEL
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
 
     ; 10. Jump to the kernel code.
     mov ecx, [REL LOADER_PARAMS]
