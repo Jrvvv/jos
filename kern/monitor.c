@@ -80,6 +80,21 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf) {
         // Print current frame
         cprintf("  rbp %016lx  rip %016lx\n", rbp, rip);
 
+        // Get debug information for this RIP
+        struct Ripdebuginfo info;
+        if (debuginfo_rip(rip, &info) == 0) {
+            // Calculate offset from function start
+            uintptr_t offset = rip - info.rip_fn_addr;
+
+            // Print debug info: file:line: function+offset
+            cprintf("    %s:%d: %.*s+%lu\n",
+                   info.rip_file,
+                   info.rip_line,
+                   info.rip_fn_namelen,
+                   info.rip_fn_name,
+                   offset);
+        }
+
         // Move to the previous frame (previous RBP is stored at [RBP])
         rbp = *(uint64_t *)rbp;
     }
