@@ -68,7 +68,21 @@ mon_hello(int argc, char **argv, struct Trapframe *tf) {
 
 int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf) {
-    // LAB 2: Your code here
+    uint64_t rbp = read_rbp();
+    uint64_t rip;
+
+    cprintf("Stack backtrace:\n");
+
+    while (rbp != 0) {
+        // The return address (RIP) is stored at [RBP + 8]
+        rip = *(uint64_t *)(rbp + 8);
+
+        // Print current frame
+        cprintf("  rbp %016lx  rip %016lx\n", rbp, rip);
+
+        // Move to the previous frame (previous RBP is stored at [RBP])
+        rbp = *(uint64_t *)rbp;
+    }
 
     return 0;
 }
