@@ -86,9 +86,18 @@ envid2env(envid_t envid, struct Env **env_store, bool need_check_perm) {
 void
 env_init(void) {
 
-    /* Set up envs array */
+    for (int i = 0; i < NENV; i++) {
+        envs[i].env_id = 0;
+        envs[i].env_status = ENV_FREE;
 
-    // LAB 3: Your code here
+        if (i == NENV - 1) {
+            envs[i].env_link = NULL;
+        } else {
+            envs[i].env_link = &envs[i + 1];
+        }
+    }
+
+    env_free_list = envs;
 }
 
 /* Allocates and initializes a new environment.
@@ -144,8 +153,9 @@ env_alloc(struct Env **newenv_store, envid_t parent_id, enum EnvType type) {
     env->env_tf.tf_ss = GD_KD;
     env->env_tf.tf_cs = GD_KT;
 
-    // LAB 3: Your code here:
-    // static uintptr_t stack_top = 0x2000000;
+    static uintptr_t stack_top = 0x2000000;
+    int env_index = env - envs;
+    env->env_tf.tf_rsp = stack_top + env_index * PROG_STACK_SIZE;
 #else
     env->env_tf.tf_ds = GD_UD | 3;
     env->env_tf.tf_es = GD_UD | 3;
@@ -220,6 +230,66 @@ static int
 load_icode(struct Env *env, uint8_t *binary, size_t size) {
     // LAB 3: Your code here
 
+    // Check if the binary is a valid ELF file
+    struct Elf *elf = (struct Elf *)binary;
+
+    // Verify ELF magic number
+    if (elf->e_magic != ELF_MAGIC) {
+        cprintf("load_icode: ELF magic number mismatch: %08x vs %08x\n", elf->e_magic, ELF_MAGIC);
+        return -E_INVALID_EXE;
+    }
+
+    // Check if the ELF header fits within the binary size
+    if (size < sizeof(struct Elf)) {
+        cprintf("load_icode: binary too small for ELF header\n");
+        return -E_INVALID_EXE;
+    }
+
+    // Check program header table
+    if (elf->e_phoff + elf->e_phnum * elf->e_phentsize > size) {
+        cprintf("load_icode: program header table extends beyond binary size\n");
+        return -E_INVALID_EXE;
+    }
+
+    // Get program headers
+    struct Proghdr *ph = (struct Proghdr *)(binary + elf->e_phoff);
+
+    // Store the binary pointer in the environment for later use
+    env->binary = binary;
+
+    // Load each program segment
+    for (int i = 0; i < elf->e_phnum; i++) {
+        if (ph[i].p_type == ELF_PROG_LOAD) {
+            // Check if segment is within binary bounds
+            if (ph[i].p_offset + ph[i].p_filesz > size) {
+                cprintf("load_icode: segment %d extends beyond binary size\n", i);
+                return -E_INVALID_EXE;
+            }
+
+            // Check if filesz <= memsz
+            if (ph[i].p_filesz > ph[i].p_memsz) {
+                cprintf("load_icode: segment %d has filesz > memsz\n", i);
+                return -E_INVALID_EXE;
+            }
+
+            // Allocate memory for the segment
+            // For now, we'll assume the memory is already mapped and accessible
+            // In a real implementation, we would need to map the pages here
+
+            // Copy the segment data from the binary
+            memcpy((void *)ph[i].p_va, binary + ph[i].p_offset, ph[i].p_filesz);
+
+            // Clear the remaining part of the segment (BSS section)
+            if (ph[i].p_memsz > ph[i].p_filesz) {
+                memset((void *)(ph[i].p_va + ph[i].p_filesz), 0, ph[i].p_memsz - ph[i].p_filesz);
+            }
+        }
+    }
+
+    // Set the entry point in the trap frame
+    env->env_tf.tf_rip = elf->e_entry;
+    env->env_tf.tf_rflags = 0x2; // Enable interrupts
+
     return 0;
 }
 
@@ -232,6 +302,19 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
 void
 env_create(uint8_t *binary, size_t size, enum EnvType type) {
     // LAB 3: Your code here
+
+    struct Env *env;
+    int r;
+
+    // Allocate a new environment
+    if ((r = env_alloc(&env, 0, type)) < 0) {
+        panic("env_create: env_alloc failed: %i", r);
+    }
+
+    // Load the ELF binary into the environment
+    if ((r = load_icode(env, binary, size)) < 0) {
+        panic("env_create: load_icode failed: %i", r);
+    }
 }
 
 
@@ -350,6 +433,26 @@ env_run(struct Env *env) {
 
     // LAB 3: Your code here
 
-    while (1)
-        ;
+    // Step 1: Handle context switch
+    if (curenv) {
+        // If there's a current environment, set it back to RUNNABLE if it's RUNNING
+        if (curenv->env_status == ENV_RUNNING) {
+            curenv->env_status = ENV_RUNNABLE;
+        }
+    }
+
+    // Set the new environment as current
+    curenv = env;
+
+    // Set its status to RUNNING
+    env->env_status = ENV_RUNNING;
+
+    // Update its runs counter
+    env->env_runs++;
+
+    // Step 2: Restore the environment's registers and start execution
+    env_pop_tf(&env->env_tf);
+
+    // This function should never return
+    panic("env_run returned unexpectedly");
 }
