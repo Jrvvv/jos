@@ -31,5 +31,6 @@ fi
 
 if [ ! -f "efibuild.sh" ]; then
   curl -LO https://raw.githubusercontent.com/acidanthera/ocbuild/master/efibuild.sh || exit 1
+  sed -i -e 's/ master / audk-stable-202502 /' efibuild.sh
 fi
 . efibuild.sh
