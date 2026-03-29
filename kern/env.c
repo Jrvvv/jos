@@ -228,8 +228,6 @@ bind_functions(struct Env *env, uint8_t *binary, size_t size, uintptr_t image_st
  *   What?  (See env_run() and env_pop_tf() below.) */
 static int
 load_icode(struct Env *env, uint8_t *binary, size_t size) {
-    // LAB 3: Your code here
-
     // Check if the binary is a valid ELF file
     struct Elf *elf = (struct Elf *)binary;
 
@@ -301,8 +299,6 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
  */
 void
 env_create(uint8_t *binary, size_t size, enum EnvType type) {
-    // LAB 3: Your code here
-
     struct Env *env;
     int r;
 
@@ -342,7 +338,12 @@ env_destroy(struct Env *env) {
      * ENV_DYING. A zombie environment will be freed the next time
      * it traps to the kernel. */
 
-    // LAB 3: Your code here
+    env_free(env);
+
+    if (curenv == env) {
+        curenv = NULL;
+        sched_yield();
+    }
 }
 
 #ifdef CONFIG_KSPACE
@@ -430,8 +431,6 @@ env_run(struct Env *env) {
         if (curenv) cprintf("[%08X] env stopped: %s\n", curenv->env_id, state[curenv->env_status]);
         cprintf("[%08X] env started: %s\n", env->env_id, state[env->env_status]);
     }
-
-    // LAB 3: Your code here
 
     // Step 1: Handle context switch
     if (curenv) {
