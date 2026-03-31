@@ -267,7 +267,7 @@ bind_functions(struct Env *env, uint8_t *binary, size_t size, uintptr_t image_st
  *   What?  (See env_run() and env_pop_tf() below.) */
 static int
 load_icode(struct Env *env, uint8_t *binary, size_t size) {
-    struct Proghdr *ph, *eph;
+    struct Proghdr *ph;
 
     struct Elf *elf = (struct Elf*)binary;
 
@@ -293,7 +293,6 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
     uintptr_t image_end = 0;
 
     ph = (struct Proghdr*)(binary + elf->e_phoff);
-    eph = ph + elf->e_phnum;
     for (int i = 0; i < elf->e_phnum; i++) {
         if (ph[i].p_type == ELF_PROG_LOAD) {
             // Check if segment is within binary bounds
@@ -386,7 +385,7 @@ env_destroy(struct Env *env) {
             env_free(env);
             sched_yield();
         } else {
-            env->env_status = ENV_DYING;
+            env_free(env);
         }
     }
 }
