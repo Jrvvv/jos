@@ -99,8 +99,39 @@ find_function(const char *const fname) {
      * and naive_address_by_fname which performs full traversal of DIE tree.
      * It may also be useful to look to kernel symbol table for symbols defined
      * in assembly. */
+    if (fname == NULL || fname[0] == '\0') return 0;
 
-    // LAB 3: Your code here:
+    const uintptr_t s_base = uefi_lp->SymbolTableStart;
+    const uintptr_t s_limit = uefi_lp->SymbolTableEnd;
+    const uintptr_t t_base = uefi_lp->StringTableStart;
+    const uintptr_t t_limit = uefi_lp->StringTableEnd;
+
+    if (s_base && s_limit > s_base && t_base && t_limit > t_base) {
+        const struct Elf64_Sym* curr_sym = (const struct Elf64_Sym*)s_base;
+        const struct Elf64_Sym* end_sym = (const struct Elf64_Sym*)s_limit;
+        const char* names_pool = (const char*)t_base;
+
+        for (; curr_sym < end_sym; ++curr_sym) {
+            uint32_t name_idx = curr_sym->st_name;
+
+            if (name_idx == 0 || (t_base + name_idx >= t_limit)) continue;
+
+            const char* current_name = names_pool + name_idx;
+            
+            if (strcmp(current_name, fname) == 0) {
+                uint8_t st_type = curr_sym->st_info & 0xF;
+                if (st_type == STT_FUNC || st_type == STT_NOTYPE) return (uintptr_t)curr_sym->st_value;
+            }
+        }
+    }
+
+    struct Dwarf_Addrs debug_info;
+    uintptr_t found_addr = 0;
+    
+    load_kernel_dwarf_info(&debug_info);
+    
+    if (address_by_fname(&debug_info, fname, &found_addr) == 0) return found_addr;    
+    if (naive_address_by_fname(&debug_info, fname, &found_addr) == 0) return found_addr;
 
     return 0;
 }

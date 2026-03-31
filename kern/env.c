@@ -179,9 +179,48 @@ env_alloc(struct Env **newenv_store, envid_t parent_id, enum EnvType type) {
  */
 static int
 bind_functions(struct Env *env, uint8_t *binary, size_t size, uintptr_t image_start, uintptr_t image_end) {
-    // LAB 3: Your code here:
-
     /* NOTE: find_function from kdebug.c should be used */
+    struct Elf* header_ptr = (struct Elf*)binary;
+    struct Secthdr* section_headers = (struct Secthdr*)((uint8_t*)binary + header_ptr->e_shoff);
+    
+    char* string_names_table = (char*)binary + section_headers[header_ptr->e_shstrndx].sh_offset;
+    
+    uintptr_t sym_base = 0, sym_limit = 0;
+    uintptr_t str_base = 0, str_limit = 0;
+
+    for (UINT32 idx = 0; idx < header_ptr->e_shnum; ++idx) {
+        const char* s_name = string_names_table + section_headers[idx].sh_name;
+        
+        if (strcmp(s_name, ".symtab") == 0) {
+            sym_base = (uintptr_t)binary + section_headers[idx].sh_offset;
+            sym_limit = sym_base + section_headers[idx].sh_size;
+        } else if (strcmp(s_name, ".strtab") == 0) {
+            str_base = (uintptr_t)binary + section_headers[idx].sh_offset;
+            str_limit = str_base + section_headers[idx].sh_size;
+        }
+
+        if (sym_base && str_base) break;
+    }
+
+    struct Elf64_Sym* symbol_entry = (struct Elf64_Sym*)sym_base;
+    const char* str_pool = (const char*)str_base;
+    const size_t pool_capacity = (size_t)(str_limit - str_base);
+
+    for (; (uintptr_t)symbol_entry < sym_limit; symbol_entry++) {
+        if ((symbol_entry->st_info & 0xf) != STT_OBJECT) 
+            continue;
+
+        uint32_t offset = symbol_entry->st_name;
+        
+        if (offset < pool_capacity) {
+            const char* sym_name = str_pool + offset;
+            uintptr_t resolved_addr = find_function(sym_name);
+            
+            if (resolved_addr != 0) {
+                *(uintptr_t*)(symbol_entry->st_value) = resolved_addr;
+            }
+        }
+    }
 
     return 0;
 }
@@ -228,8 +267,9 @@ bind_functions(struct Env *env, uint8_t *binary, size_t size, uintptr_t image_st
  *   What?  (See env_run() and env_pop_tf() below.) */
 static int
 load_icode(struct Env *env, uint8_t *binary, size_t size) {
-    // Check if the binary is a valid ELF file
-    struct Elf *elf = (struct Elf *)binary;
+    struct Proghdr *ph, *eph;
+
+    struct Elf *elf = (struct Elf*)binary;
 
     // Verify ELF magic number
     if (elf->e_magic != ELF_MAGIC) {
@@ -249,13 +289,11 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
         return -E_INVALID_EXE;
     }
 
-    // Get program headers
-    struct Proghdr *ph = (struct Proghdr *)(binary + elf->e_phoff);
+    uintptr_t image_start = ~0UL;
+    uintptr_t image_end = 0;
 
-    // Store the binary pointer in the environment for later use
-    env->binary = binary;
-
-    // Load each program segment
+    ph = (struct Proghdr*)(binary + elf->e_phoff);
+    eph = ph + elf->e_phnum;
     for (int i = 0; i < elf->e_phnum; i++) {
         if (ph[i].p_type == ELF_PROG_LOAD) {
             // Check if segment is within binary bounds
@@ -275,15 +313,20 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
             // In a real implementation, we would need to map the pages here
 
             // Copy the segment data from the binary
-            memcpy((void *)ph[i].p_va, binary + ph[i].p_offset, ph[i].p_filesz);
-
+            memcpy((void*)ph[i].p_va, binary + ph[i].p_offset, ph[i].p_filesz);
             // Clear the remaining part of the segment (BSS section)
-            if (ph[i].p_memsz > ph[i].p_filesz) {
-                memset((void *)(ph[i].p_va + ph[i].p_filesz), 0, ph[i].p_memsz - ph[i].p_filesz);
-            }
+            memset((void*)(ph[i].p_va + ph[i].p_filesz), 0, ph[i].p_memsz - ph[i].p_filesz);
+
+            if (ph[i].p_va < image_start)
+                image_start = ph[i].p_va;
+            if (ph[i].p_va + ph[i].p_memsz > image_end)
+                image_end = ph[i].p_va + ph[i].p_memsz;
         }
     }
 
+    if (bind_functions(env, binary, size, image_start, image_end) < 0) {
+        return -E_INVALID_EXE;
+    }
     // Set the entry point in the trap frame
     env->env_tf.tf_rip = elf->e_entry;
     env->env_tf.tf_rflags = 0x2; // Enable interrupts
@@ -338,11 +381,13 @@ env_destroy(struct Env *env) {
      * ENV_DYING. A zombie environment will be freed the next time
      * it traps to the kernel. */
 
-    env_free(env);
-
-    if (curenv == env) {
-        curenv = NULL;
-        sched_yield();
+    if ((env->env_status != ENV_FREE) && (env->env_status != ENV_DYING)) {
+        if (env == curenv) {
+            env_free(env);
+            sched_yield();
+        } else {
+            env->env_status = ENV_DYING;
+        }
     }
 }
 
@@ -433,11 +478,9 @@ env_run(struct Env *env) {
     }
 
     // Step 1: Handle context switch
-    if (curenv) {
-        // If there's a current environment, set it back to RUNNABLE if it's RUNNING
-        if (curenv->env_status == ENV_RUNNING) {
-            curenv->env_status = ENV_RUNNABLE;
-        }
+    // If there's a current environment, set it back to RUNNABLE if it's RUNNING
+    if (curenv && curenv->env_status == ENV_RUNNING) {
+        curenv->env_status = ENV_RUNNABLE;
     }
 
     // Set the new environment as current
