@@ -270,41 +270,169 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
     struct Proghdr *ph;
 
     struct Elf *elf = (struct Elf*)binary;
-
-    // Verify ELF magic number
-    if (elf->e_magic != ELF_MAGIC) {
-        cprintf("load_icode: ELF magic number mismatch: %08x vs %08x\n", elf->e_magic, ELF_MAGIC);
+    // Check if input parameters are valid
+    if (binary == NULL || size == 0) {
+        cprintf("load_icode: invalid binary or size\n");
         return -E_INVALID_EXE;
     }
 
-    // Check if the ELF header fits within the binary size
+    // Check if file is large enough to contain ELF header
     if (size < sizeof(struct Elf)) {
         cprintf("load_icode: binary too small for ELF header\n");
         return -E_INVALID_EXE;
     }
 
-    // Check program header table
-    if (elf->e_phoff + elf->e_phnum * elf->e_phentsize > size) {
+    // Verify ELF magic number
+    if (elf->e_magic != ELF_MAGIC) {
+        cprintf("load_icode: ELF magic number mismatch: %08x vs %08x\n",
+                elf->e_magic, ELF_MAGIC);
+        return -E_INVALID_EXE;
+    }
+
+    // Verify ELF header size (e_ehsize)
+    if (elf->e_ehsize < sizeof(struct Elf)) {
+        cprintf("load_icode: ELF header size too small: %d\n", elf->e_ehsize);
+        return -E_INVALID_EXE;
+    }
+
+    // Verify ELF file type (e_type): exec or dyn_lib/PIC
+    if (elf->e_type != ET_EXEC && elf->e_type != ET_DYN) {
+        cprintf("load_icode: unsupported ELF type %d\n", elf->e_type);
+        return -E_INVALID_EXE;
+    }
+
+    // Verify target architecture (e_machine)
+    if (elf->e_machine != EM_X86_64) {
+        cprintf("load_icode: unsupported machine type %d\n", elf->e_machine);
+        return -E_INVALID_EXE;
+    }
+
+    // Verify ELF version (e_version)
+    if (elf->e_version != 1 /* EV_CURRENT */) {
+        cprintf("load_icode: unsupported ELF version %d\n", elf->e_version);
+        return -E_INVALID_EXE;
+    }
+
+    // Check if program headers are present (e_phnum)
+    if (elf->e_phnum == 0) {
+        cprintf("load_icode: no program headers\n");
+        return -E_INVALID_EXE;
+    }
+
+    // Verify program header entry size (e_phentsize)
+    if (elf->e_phentsize != sizeof(struct Proghdr)) {
+        cprintf("load_icode: invalid program header entry size: %d\n",
+                elf->e_phentsize);
+        return -E_INVALID_EXE;
+    }
+
+    // Check if program header offset is 8-byte aligned (required for 64-bit)
+    if (elf->e_phoff & 0x7) {
+        cprintf("load_icode: program header offset not aligned to 8 bytes\n");
+        return -E_INVALID_EXE;
+    }
+
+    // Check for integer overflow when computing program header table size
+    if (elf->e_phnum > (UINT64_MAX - elf->e_phoff) / elf->e_phentsize) {
+        cprintf("load_icode: program header table size overflow\n");
+        return -E_INVALID_EXE;
+    }
+
+    // Check if program header table fits within file boundaries
+    if (elf->e_phoff + (uint64_t)elf->e_phnum * elf->e_phentsize > size) {
         cprintf("load_icode: program header table extends beyond binary size\n");
+        return -E_INVALID_EXE;
+    }
+
+    // Verify section headers if present (consistency checks)
+    if (elf->e_shnum > 0) {
+        if (elf->e_shentsize != sizeof(struct Secthdr)) {
+            cprintf("load_icode: invalid section header entry size: %d\n",
+                    elf->e_shentsize);
+            return -E_INVALID_EXE;
+        }
+        if (elf->e_shoff + (uint64_t)elf->e_shnum * elf->e_shentsize > size) {
+            cprintf("load_icode: section header table extends beyond file\n");
+            return -E_INVALID_EXE;
+        }
+        if (elf->e_shstrndx >= elf->e_shnum) {
+            cprintf("load_icode: invalid section name string table index\n");
+            return -E_INVALID_EXE;
+        }
+    }
+
+    // Check if at least one PT_LOAD segment exists
+    bool has_load_segment = false;
+    for (int i = 0; i < elf->e_phnum; i++) {
+        ph = (struct Proghdr*)(binary + elf->e_phoff + i * elf->e_phentsize);
+        if (ph->p_type == PT_LOAD) {
+            has_load_segment = true;
+            break;
+        }
+    }
+    if (!has_load_segment) {
+        cprintf("load_icode: no loadable segments found\n");
         return -E_INVALID_EXE;
     }
 
     uintptr_t image_start = ~0UL;
     uintptr_t image_end = 0;
 
+    bool entry_in_load = false;
+
     ph = (struct Proghdr*)(binary + elf->e_phoff);
     for (int i = 0; i < elf->e_phnum; i++) {
         if (ph[i].p_type == ELF_PROG_LOAD) {
+            // Check p_align field (must be power of two, non-zero for loadable segments)
+            if (ph[i].p_align == 0 || (ph[i].p_align & (ph[i].p_align - 1)) != 0) {
+                cprintf("load_icode: invalid alignment 0x%lx for load segment %d\n",
+                        ph[i].p_align, i);
+                return -E_INVALID_EXE;
+            }
+
+            // Verify address alignment according to p_align for loadable segments
+            if (ph[i].p_align > 1) {
+                if ((ph[i].p_offset % ph[i].p_align) != (ph[i].p_va % ph[i].p_align)) {
+                    cprintf("load_icode: p_offset and p_va have different modulo p_align\n");
+                    return -E_INVALID_EXE;
+                }
+            }
+
             // Check if segment is within binary bounds
             if (ph[i].p_offset + ph[i].p_filesz > size) {
                 cprintf("load_icode: segment %d extends beyond binary size\n", i);
                 return -E_INVALID_EXE;
             }
 
-            // Check if filesz <= memsz
+            // Verify that file size does not exceed memory size
             if (ph[i].p_filesz > ph[i].p_memsz) {
                 cprintf("load_icode: segment %d has filesz > memsz\n", i);
                 return -E_INVALID_EXE;
+            }
+
+            // Check that loadable segments have non-zero memory size
+            if (ph[i].p_memsz == 0) {
+                cprintf("load_icode: loadable segment %d has zero memory size\n", i);
+                return -E_INVALID_EXE;
+            }
+
+            // Verify virtual address range does not overflow or exceed user space limits
+            // Assume maximum user address is UTOP (defined in memlayout.h)
+            if (ph[i].p_va > MAX_USER_ADDRESS - 1 || ph[i].p_va + ph[i].p_memsz > MAX_USER_ADDRESS) {
+                cprintf("load_icode: segment %d virtual address range [%lx, %lx) exceeds UTOP\n",
+                        i, ph->p_va, ph->p_va + ph->p_memsz);
+                return -E_INVALID_EXE;
+            }
+
+            if ((ph[i].p_flags & ~(ELF_PROG_FLAG_EXEC |
+                                   ELF_PROG_FLAG_WRITE |
+                                   ELF_PROG_FLAG_READ)) != 0) {
+                cprintf("load_icode: segment %d has invalid flags 0x%x\n", i, ph[i].p_flags);
+                return -E_INVALID_EXE;
+            }
+
+            if (elf->e_entry >= ph[i].p_va && elf->e_entry < ph[i].p_va + ph[i].p_memsz) {
+                entry_in_load = true;
             }
 
             // Allocate memory for the segment
@@ -321,6 +449,19 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
             if (ph[i].p_va + ph[i].p_memsz > image_end)
                 image_end = ph[i].p_va + ph[i].p_memsz;
         }
+    }
+
+    // Verify entry point address
+    if (elf->e_entry == 0) {
+        cprintf("load_icode: entry point is NULL\n");
+        return -E_INVALID_EXE;
+    }
+
+    // Check if entry point falls within any loadable segment
+    if (!entry_in_load) {
+        cprintf("load_icode: entry point 0x%lx not within any loadable segment\n",
+                elf->e_entry);
+        return -E_INVALID_EXE;
     }
 
     if (bind_functions(env, binary, size, image_start, image_end) < 0) {
