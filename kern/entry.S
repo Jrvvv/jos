@@ -10,6 +10,7 @@
 
 .globl entry
 entry:
+    cli
     # Set up kernel stack
     leaq bootstacktop(%rip),%rsp
     xor %ebp, %ebp
@@ -26,6 +27,7 @@ entry:
 
 .global save_trapframe_trap
 save_trapframe_trap:
+    cli
     popq save_trapframe_ret(%rip)
     popq saved_rip(%rip)
     popq saved_cs(%rip)
@@ -35,6 +37,7 @@ save_trapframe_trap:
     jmp save_trapframe
 
 save_trapframe_syscall:
+    cli
     popq save_trapframe_ret(%rip)
     popq saved_rip(%rip)
     movq %rsp, saved_rsp(%rip)

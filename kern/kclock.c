@@ -22,16 +22,32 @@
 uint8_t
 cmos_read8(uint8_t reg) {
     /* MC146818A controller */
-    // LAB 4: Your code here
-    uint8_t res = 0;
-    nmi_enable();
+    // Disable NMI to prevent interference during CMOS access
+    // And select the CMOS register to read from
+    uint8_t nmi_state = inb(CMOS_CMD);
+    outb(CMOS_CMD, reg | CMOS_NMI_LOCK);
+
+    // Read the data from the CMOS data port
+    uint8_t res = inb(CMOS_DATA);
+
+    // Restore NMI state
+    outb(CMOS_CMD, nmi_state);
+
     return res;
 }
 
 void
 cmos_write8(uint8_t reg, uint8_t value) {
-    // LAB 4: Your code here
-    nmi_enable();
+    // Disable NMI to prevent interference during CMOS access
+    // And select the CMOS register to write to
+    uint8_t nmi_state = inb(CMOS_CMD);
+    outb(CMOS_CMD, reg | CMOS_NMI_LOCK);
+
+    // Write the data to the CMOS data port
+    outb(CMOS_DATA, value);
+
+    // Restore NMI state
+    outb(CMOS_CMD, nmi_state);
 }
 
 uint16_t
@@ -41,25 +57,25 @@ cmos_read16(uint8_t reg) {
 
 void
 rtc_timer_pic_interrupt(void) {
-    // LAB 4: Your code here
-    // Enable PIC interrupts.
+    pic_irq_unmask(IRQ_CLOCK);
 }
 
 void
 rtc_timer_pic_handle(void) {
-    rtc_check_status();
+    uint8_t stat_reg = rtc_check_status();
+    (void)stat_reg;
     pic_send_eoi(IRQ_CLOCK);
 }
 
 void
 rtc_timer_init(void) {
-    // LAB 4: Your code here
-    // (use cmos_read8()/cmos_write8())
+    const uint8_t pie_off = 0x6;
+    uint8_t b_reg = cmos_read8(0xB);
+
+    cmos_write8(0xB, b_reg | (0x1 << pie_off));
 }
 
 uint8_t
 rtc_check_status(void) {
-    // LAB 4: Your code here
-    // (use cmos_read8())
-    return 0;
+    return cmos_read8(0xC);
 }
