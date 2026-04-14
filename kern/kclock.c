@@ -22,32 +22,24 @@
 uint8_t
 cmos_read8(uint8_t reg) {
     /* MC146818A controller */
-    // Disable NMI to prevent interference during CMOS access
-    // And select the CMOS register to read from
-    uint8_t nmi_state = inb(CMOS_CMD);
     outb(CMOS_CMD, reg | CMOS_NMI_LOCK);
 
     // Read the data from the CMOS data port
     uint8_t res = inb(CMOS_DATA);
 
-    // Restore NMI state
-    outb(CMOS_CMD, nmi_state);
+    nmi_enable();
 
     return res;
 }
 
 void
 cmos_write8(uint8_t reg, uint8_t value) {
-    // Disable NMI to prevent interference during CMOS access
-    // And select the CMOS register to write to
-    uint8_t nmi_state = inb(CMOS_CMD);
     outb(CMOS_CMD, reg | CMOS_NMI_LOCK);
 
     // Write the data to the CMOS data port
     outb(CMOS_DATA, value);
 
-    // Restore NMI state
-    outb(CMOS_CMD, nmi_state);
+    nmi_enable();
 }
 
 uint16_t
@@ -69,13 +61,16 @@ rtc_timer_pic_handle(void) {
 
 void
 rtc_timer_init(void) {
-    const uint8_t pie_off = 0x6;
-    uint8_t b_reg = cmos_read8(0xB);
+    uint8_t b_reg = cmos_read8(RTC_BREG);
 
-    cmos_write8(0xB, b_reg | (0x1 << pie_off));
+    cmos_write8(RTC_BREG, b_reg | RTC_PIE);
+
+     uint8_t a_reg = cmos_read8(RTC_AREG);
+
+     cmos_write8(RTC_AREG, RTC_SET_NEW_RATE(a_reg, RTC_500MS_RATE));
 }
 
 uint8_t
 rtc_check_status(void) {
-    return cmos_read8(0xC);
+    return cmos_read8(RTC_CREG);
 }

@@ -473,7 +473,6 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
     }
     // Set the entry point in the trap frame
     env->env_tf.tf_rip = elf->e_entry;
-    env->env_tf.tf_rflags = 0x2; // Enable interrupts
 
     return 0;
 }

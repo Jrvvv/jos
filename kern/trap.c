@@ -214,8 +214,8 @@ trap_dispatch(struct Trapframe *tf) {
         }
         return;
     case IRQ_OFFSET + IRQ_CLOCK:
-        // if (trace_traps) cprintf("Clock interrupt\n");
         rtc_timer_pic_handle();
+        sched_yield();
         return;
     default:
         print_trapframe(tf);
