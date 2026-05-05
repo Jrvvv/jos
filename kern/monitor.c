@@ -116,20 +116,22 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf) {
 }
 
 /* Implement timer_start (mon_start), timer_stop (mon_stop), timer_freq (mon_frequency) commands. */
-// LAB 5: Your code here:
 
 int
 mon_start(int argc, char **argv, struct Trapframe *tf) {
+    timer_start(argv[1]);
     return 0;
 }
 
 int
 mon_stop(int argc, char **argv, struct Trapframe *tf) {
+    timer_stop();
     return 0;
 }
 
 int
 mon_frequency(int argc, char **argv, struct Trapframe *tf) {
+    timer_cpu_frequency(argv[1]);
     return 0;
 }
 
