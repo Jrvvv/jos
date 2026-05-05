@@ -224,7 +224,6 @@ get_timer_type(const char* name) {
 static bool timer_started = 0;
 static int timer_id = -1;
 static uint64_t timer = 0;
-static uint64_t freq = 0;
 
 static uint64_t 
 get_cpu_frequency(enum TimerType type)
