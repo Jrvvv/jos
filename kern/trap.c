@@ -13,7 +13,8 @@
 #include <kern/timer.h>
 #include <kern/traceopt.h>
 
-extern void clock_thdlr();
+extern void clock_thdlr(void);
+extern void timer_thdlr(void);
 
 static struct Taskstate ts;
 
@@ -97,11 +98,15 @@ trapname(int trapno) {
 
 void
 trap_init(void) {
-    const int vec = IRQ_OFFSET + IRQ_CLOCK;
-    idt[vec] = GATE(0, GD_KT, clock_thdlr, 0);
-    // LAB 5: Your code here
+    clock_idt_init();
     /* Per-CPU setup */
     trap_init_percpu();
+}
+
+void clock_idt_init(void)
+{
+    idt[IRQ_OFFSET + IRQ_CLOCK] = GATE(0, GD_KT, (uint64_t) (&clock_thdlr), 0);
+    idt[IRQ_OFFSET + IRQ_TIMER] = GATE(0, GD_KT, (uint64_t) (&timer_thdlr), 0);
 }
 
 /* Initialize and load the per-CPU TSS and IDT */
@@ -214,10 +219,14 @@ trap_dispatch(struct Trapframe *tf) {
             print_trapframe(tf);
         }
         return;
+    case IRQ_OFFSET + IRQ_TIMER:
     case IRQ_OFFSET + IRQ_CLOCK:
-        rtc_timer_pic_handle();
+        // rtc_timer_pic_handle();
+
+        assert(timer_for_schedule);
+        timer_for_schedule->handle_interrupts();
+
         sched_yield();
-        // LAB 5: Your code here
         return;
     default:
         print_trapframe(tf);

@@ -60,6 +60,11 @@ typedef struct {
 } RSDT;
 
 typedef struct {
+    ACPISDTHeader h;
+    uint64_t PointerToOtherSDT[];
+} XSDT;
+
+typedef struct {
     uint8_t address_space_id;
     uint8_t register_bit_width;
     uint8_t register_bit_offset;
@@ -92,10 +97,12 @@ typedef struct {
 #define HPET_TN_TIM_CONF_OFFSET 0
 #define HPET_TN_TIM_COMP_OFFSET 8
 
+#define HPET_TN_INT_TYPE_CONF   (1 << 1)
+
 typedef struct {
     uint64_t GCAP_ID;
     uint64_t rsv1;
-    uint64_t GEN_CONF;
+    uint64_t GEN_CONF;  
     uint64_t rsv2;
     uint64_t GINTR_STA;
     uint64_t rsv3[25];
@@ -170,10 +177,19 @@ typedef struct {
     uint8_t Reserved3[3];
 } FADT;
 
+#define ACPI_FADT_FLAG_TMR_VAL_EXT (1 << 8)
+#define ACPI_PM1A_ST_REG_TMR_STS   (1 << 0)
+
 #pragma pack(pop)
+
+static const char RSDP_sign[8] = "RSD PTR ";
+static const char XSDT_sign[4] = "XSDT";
+static const char FADT_sign[4] = "FACP";
+static const char HPET_sign[4] = "HPET";
 
 void acpi_enable(void);
 RSDP *get_rsdp(void);
+XSDT* get_xsdt(RSDP* rsdp);
 FADT *get_fadt(void);
 HPET *get_hpet(void);
 
