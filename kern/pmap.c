@@ -1,6 +1,7 @@
 /* See COPYRIGHT for copyright information. */
 
 #include <inc/assert.h>
+#include <inc/elf.h>
 #include <inc/error.h>
 #include <inc/mmu.h>
 #include <inc/string.h>
@@ -9,6 +10,7 @@
 
 #include <kern/env.h>
 #include <kern/kclock.h>
+#include <kern/kdebug.h>
 #include <kern/pmap.h>
 #include <kern/traceopt.h>
 #include <kern/trap.h>
@@ -82,7 +84,11 @@ list_init(struct List *list) {
  */
 inline static void __attribute__((always_inline))
 list_append(struct List *list, struct List *new) {
-    // LAB 6: Your code here
+    new->next  = list->next;
+    list->next = new; 
+
+    new->prev = list;
+    new->next->prev = new;
 }
 
 /*
@@ -91,8 +97,10 @@ list_append(struct List *list, struct List *new) {
  */
 inline static struct List *__attribute__((always_inline))
 list_del(struct List *list) {
-    // LAB 6: Your code here
+    list->prev->next = list->next;
+    list->next->prev = list->prev;
 
+    list_init(list);
     return list;
 }
 
@@ -171,10 +179,32 @@ static struct Page *
 alloc_child(struct Page *parent, bool right) {
     assert_physical(parent);
     assert(parent);
+    assert(parent->class > 0);
 
-    // LAB 6: Your code here
+    if (right)
+        assert(!parent->right);
+    else
+        assert(!parent->left);
 
-    struct Page *new = NULL;
+    struct Page *new = alloc_descriptor(parent->state);
+
+    new->parent = parent;
+
+    if (parent->refc == 0) {
+        new->refc = 0;
+    } else {
+        new->refc = 1;
+    }
+
+    new->class = parent->class - 1;
+
+    if (right) {
+        new->addr = ((parent->addr << CLASS_BASE) + (CLASS_SIZE(parent->class) / 2)) >> CLASS_BASE;
+        parent->right = new;
+    } else {
+        new->addr = parent->addr;
+        parent->left = new;
+    }
 
     return new;
 }
@@ -304,16 +334,61 @@ page_unref(struct Page *page) {
 static void
 attach_region(uintptr_t start, uintptr_t end, enum PageState type) {
     if (trace_memory_more)
-        cprintf("Attaching memory region [%08lX, %08lX] with type %d\n", start, end - 1, type);
-    int class = 0, res = 0;
+        cprintf("Attaching memory region [%08lX, %08lX) with type %d\n", start, end - 1, type);
 
-    (void)class;
-    (void)res;
+    assert(start < end);
 
-    start = ROUNDDOWN(start, CLASS_SIZE(0));
-    end = ROUNDUP(end, CLASS_SIZE(0));
+    uintptr_t aligned_start = ROUNDDOWN(start, CLASS_SIZE(0));
 
-    // LAB 6: Your code here
+    // Worst case is that the start address is not aligned to the bigger class size 
+    // and the total size of the region is not enough to fit whole count of them, 
+    // so the regions have to be paged like this
+    // 1. Small pages of increasing size, until maximum-fitting page is reached
+    // 2. Biggest fitting page(s)
+    // 3. Small pages of decreasing size, until we paged as much memory as possible
+
+    // Step 1. Calculate the biggest page class that will fit in the region (increase it, until it stops fitting)
+    int max_fit_class = 0;
+    while (ROUNDUP(aligned_start, CLASS_SIZE(max_fit_class + 1)) + CLASS_SIZE(max_fit_class + 1) <= end && max_fit_class < MAX_CLASS) {
+        max_fit_class += 1;
+    }
+    uintptr_t max_fit_start = ROUNDUP(aligned_start, CLASS_SIZE(max_fit_class));
+    uintptr_t max_fit_end = max_fit_start + CLASS_SIZE(max_fit_class);
+
+    if (trace_memory_more)
+        cprintf("--- Max fit class is %d, size of %llx [%08lx, %08lx)\n", max_fit_class, CLASS_SIZE(max_fit_class), max_fit_start, max_fit_end);
+
+    uintptr_t current = aligned_start;
+    int current_class = 0;
+
+    // Step 2. Add the biggest possible pages (with respect to alignment constraints), until reaching max_fit_start
+    while (current != max_fit_start) {
+        // Increase the page class until the alignment constraints allow it
+        while (current == ROUNDUP(current, CLASS_SIZE(current_class + 1)) && current + CLASS_SIZE(current_class + 1) <= max_fit_start)
+            current_class++;
+        if (trace_memory_more)
+            cprintf("--- Alloc page of class %02d [%08lx, %08llx)\n", current_class, current, current + CLASS_SIZE(current_class));
+        page_lookup(NULL, current, current_class, type, 1);
+        current += CLASS_SIZE(current_class);
+    }
+
+    // Step 3. Add the biggest page class that the region can fit
+    if (trace_memory_more)
+        cprintf("--- Alloc page of class %02d [%08lx, %08llx)\n", max_fit_class, current, current + CLASS_SIZE(max_fit_class));
+    page_lookup(NULL, current, max_fit_class, type, 1);
+    current += CLASS_SIZE(max_fit_class);
+    current_class = max_fit_class;
+
+    // Step 4. Add the biggest possible pages (with respect to the remaining space), until reaching end
+    while (current + CLASS_SIZE(0) <= end) {
+        // Decrease the page class until it fits
+        while (current + CLASS_SIZE(current_class) > end && current_class > 0)
+            --current_class;
+        if (trace_memory_more)
+            cprintf("--- Alloc page of class %02d [%08lx, %08llx)\n", current_class, current, current + CLASS_SIZE(current_class));
+        page_lookup(NULL, current, current_class, type, 1);
+        current += CLASS_SIZE(current_class);
+    }
 }
 
 /*
@@ -421,9 +496,39 @@ dump_virtual_tree(struct Page *node, int class) {
     // LAB 7: Your code here
 }
 
+const char* GetTypeStr(enum PageState state) {
+    enum PageState type = (state & NODE_TYPE_MASK);
+    switch (type) {
+        case MAPPING_NODE:
+            return "memory mapping";
+        case INTERMEDIATE_NODE:
+            return "Intermediate node of virtual tree";
+        case PARTIAL_NODE:
+            return "Intermediate node of physical tree";
+        case ALLOCATABLE_NODE:
+            return "Generic allocatable memory";
+        default:
+            return "Invalid";
+    }
+}
+
 void
 dump_memory_lists(void) {
-    // LAB 6: Your code here
+    cprintf("Memory lists:\n");
+    for (int class = 0; class < MAX_CLASS; ++class)
+    {
+        if (list_empty(&free_classes[class]))
+            continue;
+
+        cprintf("- List of pages with class %d:\n", class);
+        for (struct List* li = free_classes[class].next; li != &free_classes[class]; li = li->next)
+        {
+            struct Page* page = (struct Page*)li;
+            uintptr_t start = page->addr << CLASS_BASE;
+            uintptr_t end = start + CLASS_SIZE(page->class);
+            cprintf("-- Page [%08lx, %08lx) of type %s\n", start, end, GetTypeStr(page->state));
+        }
+    }
 }
 
 
@@ -521,12 +626,12 @@ detect_memory(void) {
     /* Attach reserved regions */
 
     /* Attach first page as reserved memory */
-    // LAB 6: Your code here
+    attach_region(0, PAGE_SIZE, RESERVED_NODE);
 
     /* Attach kernel and old IO memory
      * (from IOPHYSMEM to the physical address of end label. end points the the
      *  end of kernel executable image.)*/
-    // LAB 6: Your code here
+    attach_region(IOPHYSMEM, (uintptr_t)end - KERN_BASE_ADDR, RESERVED_NODE);
 
     /* Detect memory via ether UEFI or CMOS */
     if (uefi_lp && uefi_lp->MemoryMap) {
@@ -553,8 +658,7 @@ detect_memory(void) {
 
             /* Attach memory described by memory map entry described by start
              * of type type*/
-            // LAB 6: Your code here
-            (void)type;
+            attach_region(start->PhysicalStart, start->PhysicalStart + start->NumberOfPages * EFI_PAGE_SIZE, type);
 
             start = (void *)((uint8_t *)start + uefi_lp->MemoryMapDescriptorSize);
         }
