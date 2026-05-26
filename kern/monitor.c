@@ -31,6 +31,8 @@ int mon_start(int argc, char **argv, struct Trapframe *tf);
 int mon_stop(int argc, char **argv, struct Trapframe *tf);
 int mon_frequency(int argc, char **argv, struct Trapframe *tf);
 int mon_memory(int argc, char **argv, struct Trapframe *tf);
+int mon_pagetable(int argc, char **argv, struct Trapframe *tf);
+int mon_virt(int argc, char **argv, struct Trapframe *tf);
 
 struct Command {
     const char *name;
@@ -49,6 +51,8 @@ static struct Command commands[] = {
         {"timer_stop", "Stop timer", mon_stop},
         {"timer_freq", "Get timer frequency", mon_frequency},
         {"memory", "Display allocated memory pages", mon_memory},
+        {"pagetable", "Display current page table", mon_pagetable},
+        {"virt", "Display virtual memory tree", mon_virt},
 };
 #define NCOMMANDS (sizeof(commands) / sizeof(commands[0]))
 
@@ -143,6 +147,20 @@ mon_frequency(int argc, char **argv, struct Trapframe *tf) {
 int
 mon_memory(int argc, char **argv, struct Trapframe *tf) {
     dump_memory_lists();
+    return 0;
+}
+
+/* Implement mon_pagetable() and mon_virt()
+ * (using dump_virtual_tree(), dump_page_table())*/
+int
+mon_pagetable(int argc, char **argv, struct Trapframe *tf) {
+    // LAB 7: Your code here
+    return 0;
+}
+
+int
+mon_virt(int argc, char **argv, struct Trapframe *tf) {
+    // LAB 7: Your code here
     return 0;
 }
 
