@@ -68,8 +68,13 @@ KERN_OBJFILES := $(patsubst $(OBJDIR)/lib/%, $(OBJDIR)/kern/%, $(KERN_OBJFILES))
 
 # Binary program images to embed within the kernel.
 ifeq ($(CONFIG_KSPACE),y)
-KERN_BINFILES := $(sort $(shell find prog/ -type f -name '*.c'))
+KERN_BINLINK  :=
+KERN_BINFILES := $(shell find prog/ -type f -name '*.c' | sort)
 KERN_BINFILES := $(patsubst %.c, $(OBJDIR)/%_out, $(KERN_BINFILES))
+else
+KERN_BINLINK  := -b binary
+KERN_BINFILES := $(shell find user/ -type f -name '*.c' | sort)
+KERN_BINFILES := $(patsubst %.c, $(OBJDIR)/%, $(KERN_BINFILES))
 endif
 
 define PAYLOAD
@@ -155,7 +160,7 @@ $(OBJDIR)/kern/init.o: $(OBJDIR)/.vars.INIT_CFLAGS
 $(OBJDIR)/kern/kernel: $(KERN_OBJFILES) $(KERN_BINFILES) kern/kernel.ld \
 	  $(OBJDIR)/.vars.KERN_LDFLAGS
 	@echo + ld $@
-	$(V)$(LD) -o $@ $(KERN_LDFLAGS) $(KERN_SAN_LDFLAGS) $(KERN_OBJFILES) $(GCC_LIB) $(KERN_BINFILES)
+	$(V)$(LD) -o $@ $(KERN_LDFLAGS) $(KERN_SAN_LDFLAGS) $(KERN_OBJFILES) $(GCC_LIB) $(KERN_BINLINK) $(KERN_BINFILES)
 	$(V)$(OBJDUMP) -S $@ > $@.asm
 	$(V)$(NM) -n $@ > $@.sym
 
