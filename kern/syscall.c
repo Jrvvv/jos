@@ -290,6 +290,28 @@ sys_unmap_region(envid_t envid, uintptr_t va, size_t size) {
     return 0;
 }
 
+/* Map region of physical memory to the userspace address.
+ * This is meant to be used by the userspace drivers, of which
+ * the only one currently is the filesystem server.
+ *
+ * Return 0 on succeeds, < 0 on error. Erros are:
+ *  -E_BAD_ENV if environment envid doesn't currently exist,
+ *      or the caller doesn't have permission to change envid.
+ *  -E_BAD_ENV if is not a filesystem driver (ENV_TYPE_FS).
+ *  -E_INVAL if va >= MAX_USER_ADDRESS, or va is not page-aligned.
+ *  -E_INVAL if pa is not page-aligned.
+ *  -E_INVAL if size is not page-aligned.
+ *  -E_INVAL if prem contains invalid flags
+ *     (including PROT_SHARE, PROT_COMBINE or PROT_LAZY).
+ *  -E_NO_MEM if address does not exist.
+ *  -E_NO_ENT if address is already used. */
+static int
+sys_map_physical_region(uintptr_t pa, envid_t envid, uintptr_t va, size_t size, int perm) {
+    // LAB 10: Your code here
+
+    return 0;
+}
+
 /* Try to send 'value' to the target env 'envid'.
  * If srcva < MAX_USER_ADDRESS, then also send region currently mapped at 'srcva',
  * so that receiver gets mapping.
@@ -444,6 +466,7 @@ syscall(uintptr_t syscallno, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t
             return -E_NO_SYS;
     }
     // LAB 9: Your code here
+    // LAB 10: Your code here
 
     return -E_NO_SYS;
 }

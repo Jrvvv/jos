@@ -9,6 +9,7 @@ enum {
     SYS_env_destroy,
     SYS_alloc_region,
     SYS_map_region,
+    SYS_map_physical_region,
     SYS_unmap_region,
     SYS_region_refs,
     SYS_exofork,

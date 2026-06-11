@@ -179,6 +179,20 @@ typedef struct {
 
 #define ACPI_FADT_FLAG_TMR_VAL_EXT (1 << 8)
 #define ACPI_PM1A_ST_REG_TMR_STS   (1 << 0)
+/* Configuration Space Base Address Allocation */
+typedef struct {
+    uint64_t BaseAddress;
+    uint16_t SegmentGroup;
+    uint8_t StartBus;
+    uint8_t EndBus;
+    uint32_t Reserved;
+} CSBAA;
+
+typedef struct {
+    ACPISDTHeader h;
+    uint64_t Reserved;
+    CSBAA Data[];
+} MCFG;
 
 #pragma pack(pop)
 
@@ -204,6 +218,8 @@ void hpet_handle_interrupts_tim1(void);
 
 uint32_t pmtimer_get_timeval(void);
 uint64_t pmtimer_cpu_frequency(void);
+
+uintptr_t make_fs_args(char *ustack_top);
 
 #define PM_FREQ 3579545
 
