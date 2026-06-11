@@ -15,8 +15,31 @@
 #include <kern/timer.h>
 #include <kern/traceopt.h>
 
+extern void divide_thndlr(void);  // T_DIVIDE
+extern void debug_thndlr(void);   // T_DEBUG
+extern void nmi_thndlr(void);     // T_NMI
+extern void brkpt_thndlr(void);   // T_BRKPT
+extern void oflow_thndlr(void);   // T_OFLOW
+extern void bound_thndlr(void);   // T_BOUND
+extern void illop_thndlr(void);   // T_ILLOP
+extern void device_thndlr(void);  // T_DEVICE
+extern void dblflt_thndlr(void);  // T_DBLFLT
+extern void tss_thndlr(void);     // T_TSS
+extern void segnp_thndlr(void);   // T_SEGNP
+extern void stack_thndlr(void);   // T_STACK
+extern void gpflt_thndlr(void);   // T_GPFLT
+extern void pgflt_thndlr(void);   // T_PGFLT
+extern void fperr_thndlr(void);   // T_FPERR
+extern void align_thndlr(void);   // T_ALIGN
+extern void mchk_thndlr(void);    // T_MCHK
+extern void simderr_thndlr(void); // T_SIMDERR
+
+extern void syscall_thndlr(void); // T_SYSCALL
+
+#ifdef CONFIG_KSPACE
 extern void clock_thdlr(void);
 extern void timer_thdlr(void);
+#endif
 
 static struct Taskstate ts;
 
@@ -106,6 +129,26 @@ trap_init(void) {
 
     // LAB 8: Your code here
     /* Insert trap handlers into IDT */
+    idt[T_DIVIDE]   = GATE(0, GD_KT, (uintptr_t)divide_thndlr, 0);
+    idt[T_DEBUG]    = GATE(0, GD_KT, (uintptr_t)debug_thndlr, 0);
+    idt[T_NMI]      = GATE(0, GD_KT, (uintptr_t)nmi_thndlr, 0);
+    idt[T_BRKPT]    = GATE(0, GD_KT, (uintptr_t)brkpt_thndlr, 3);
+    idt[T_OFLOW]    = GATE(0, GD_KT, (uintptr_t)oflow_thndlr, 0);
+    idt[T_BOUND]    = GATE(0, GD_KT, (uintptr_t)bound_thndlr, 0);
+    idt[T_ILLOP]    = GATE(0, GD_KT, (uintptr_t)illop_thndlr, 0);
+    idt[T_DEVICE]   = GATE(0, GD_KT, (uintptr_t)device_thndlr, 0);
+    idt[T_DBLFLT]   = GATE(0, GD_KT, (uintptr_t)dblflt_thndlr, 0);
+    idt[T_TSS]      = GATE(0, GD_KT, (uintptr_t)tss_thndlr, 0);
+    idt[T_SEGNP]    = GATE(0, GD_KT, (uintptr_t)segnp_thndlr, 0);
+    idt[T_STACK]    = GATE(0, GD_KT, (uintptr_t)stack_thndlr, 0);
+    idt[T_GPFLT]    = GATE(0, GD_KT, (uintptr_t)gpflt_thndlr, 0);
+    idt[T_PGFLT]    = GATE(0, GD_KT, (uintptr_t)pgflt_thndlr, 0);
+    idt[T_FPERR]    = GATE(0, GD_KT, (uintptr_t)fperr_thndlr, 0);
+    idt[T_ALIGN]    = GATE(0, GD_KT, (uintptr_t)align_thndlr, 0);
+    idt[T_MCHK]     = GATE(0, GD_KT, (uintptr_t)mchk_thndlr, 0);
+    idt[T_SIMDERR]  = GATE(0, GD_KT, (uintptr_t)simderr_thndlr, 0);
+
+    idt[T_SYSCALL]  = GATE(0, GD_KT, (uintptr_t)syscall_thndlr, 3);
 
     /* Setup #PF handler dedicated stack
      * It should be switched on #PF because
@@ -120,8 +163,10 @@ trap_init(void) {
 
 void clock_idt_init(void)
 {
+#ifdef CONFIG_KSPACE
     idt[IRQ_OFFSET + IRQ_CLOCK] = GATE(0, GD_KT, (uint64_t) (&clock_thdlr), 0);
     idt[IRQ_OFFSET + IRQ_TIMER] = GATE(0, GD_KT, (uint64_t) (&timer_thdlr), 0);
+#endif
 }
 
 /* Initialize and load the per-CPU TSS and IDT */
@@ -237,6 +282,7 @@ trap_dispatch(struct Trapframe *tf) {
         return;
     case T_BRKPT:
         // LAB 8: Your code here.
+        monitor(tf);
         return;
     case IRQ_OFFSET + IRQ_SPURIOUS:
         /* Handle spurious interrupts

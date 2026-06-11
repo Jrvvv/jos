@@ -70,9 +70,22 @@ _alltraps:
     # Complete `struct Trapframe' on stack
     # NOTE: Members after tf_paddind4 already on stack.
     #       For struct PushRegs you can use PUSHA macro.
+    pushw $0 # padding 4
+    pushw $0 # padding 4
+    pushw $0 # padding 3
+    pushw $GD_KD # ds
+    pushw $0 # padding 2
+    pushw $0 # padding 2
+    pushw $0 # padding 1
+    pushw $GD_KD # es
+
+    PUSHA
 
     # LAB 8: Your code here
     # Invoke `trap' with a pointer to struct trap as an argument.
+    # xor %ebp, %ebp
+    movq %rsp, %rdi
+    call trap
 
     jmp .
 
@@ -80,5 +93,28 @@ _alltraps:
 # Use TRAPHANDLER or TRAPHANDLER_NOEC to setup
 # all trap handlers' entry points
 # (Look up their list in inc/trap.h)
+
+TRAPHANDLER_NOEC(divide_thndlr, T_DIVIDE)
+TRAPHANDLER_NOEC(debug_thndlr, T_DEBUG)
+TRAPHANDLER_NOEC(nmi_thndlr, T_NMI)
+TRAPHANDLER_NOEC(brkpt_thndlr, T_BRKPT)
+TRAPHANDLER_NOEC(oflow_thndlr, T_OFLOW)
+TRAPHANDLER_NOEC(bound_thndlr, T_BOUND)
+TRAPHANDLER_NOEC(illop_thndlr, T_ILLOP)
+TRAPHANDLER_NOEC(device_thndlr, T_DEVICE)
+TRAPHANDLER(dblflt_thndlr, T_DBLFLT)
+# T_COPROC - not generated
+TRAPHANDLER(tss_thndlr, T_TSS)
+TRAPHANDLER(segnp_thndlr, T_SEGNP)
+TRAPHANDLER(stack_thndlr, T_STACK)
+TRAPHANDLER(gpflt_thndlr, T_GPFLT)
+TRAPHANDLER(pgflt_thndlr, T_PGFLT)
+# T_RES - reserved
+TRAPHANDLER_NOEC(fperr_thndlr, T_FPERR)
+TRAPHANDLER     (align_thndlr, T_ALIGN)
+TRAPHANDLER_NOEC(mchk_thndlr, T_MCHK)
+TRAPHANDLER_NOEC(simderr_thndlr, T_SIMDERR)
+
+TRAPHANDLER_NOEC(syscall_thndlr, T_SYSCALL)
 
 #endif

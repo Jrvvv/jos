@@ -53,7 +53,21 @@ load_user_dwarf_info(struct Dwarf_Addrs *addrs) {
 
     /* Load debug sections from curenv->binary elf image */
     // LAB 8: Your code here
-    (void)sections;
+    struct Elf* elf_header = (struct Elf*)(binary);
+    struct Secthdr* section_header = (struct Secthdr*)(binary + elf_header->e_shoff);
+    const char* shstrtable = (const char*)(binary + section_header[elf_header->e_shstrndx].sh_offset);
+
+    for (size_t i = 0; i < elf_header->e_shnum; ++i) {
+        struct Secthdr* sh = &section_header[i];
+        const char* section_name = &shstrtable[sh->sh_name];
+        for (size_t j = 0; j < 7; ++j) {
+            if (strcmp(section_name, sections[j].name) == 0) {
+                *sections[j].start = (void*)(binary + sh->sh_offset);
+                *sections[j].end = *sections[j].start + sh->sh_size;
+                break;
+            }
+        }
+    }
 }
 
 #define UNKNOWN       "<unknown>"
@@ -82,6 +96,7 @@ debuginfo_rip(uintptr_t addr, struct Ripdebuginfo *info) {
      * Make sure that you fully understand why it is necessary. */
 
     // LAB 8: Your code here:
+    struct AddressSpace* old = switch_address_space(&kspace);
 
     /* Load dwarf section pointers from either
      * currently running program binary or use
@@ -90,9 +105,12 @@ debuginfo_rip(uintptr_t addr, struct Ripdebuginfo *info) {
      * or kernel space */
 
     // LAB 8: Your code here:
-
     struct Dwarf_Addrs addrs;
-    load_kernel_dwarf_info(&addrs);
+    if (addr > MAX_USER_ADDRESS) {
+        load_kernel_dwarf_info(&addrs);
+    } else {
+        load_user_dwarf_info(&addrs);
+    }
 
     Dwarf_Off offset = 0, line_offset = 0;
     int res = info_by_address(&addrs, addr, &offset);
@@ -123,7 +141,7 @@ debuginfo_rip(uintptr_t addr, struct Ripdebuginfo *info) {
 
     char *fn_name = NULL;
     uintptr_t fn_addr = 0;
-    if (function_by_info(&addrs, call_addr, offset, &fn_name, &fn_addr) == 0) {
+    if (function_by_info(&addrs, call_addr, offset, &fn_name, &fn_addr) == 0 && fn_name != NULL && strlen(fn_name) != 0) {
         strncpy(info->rip_fn_name, fn_name, sizeof(info->rip_fn_name));
         info->rip_fn_namelen = strlen(fn_name);
         info->rip_fn_addr = fn_addr;
@@ -131,6 +149,7 @@ debuginfo_rip(uintptr_t addr, struct Ripdebuginfo *info) {
     }
 
 error:
+    switch_address_space(old);
     return res;
 }
 

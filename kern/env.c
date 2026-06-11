@@ -93,11 +93,12 @@ env_init(void) {
     /* Allocate envs array with kzalloc_region().
      * Don't forget about rounding.
      * kzalloc_region() only works with current_space != NULL */
-    // LAB 8: Your code here
+    size_t envs_size = ROUNDUP(sizeof(struct Env) * NENV, PAGE_SIZE);
+    envs = kzalloc_region(envs_size);
 
     /* Map envs to UENVS read-only,
      * but user-accessible (with PROT_USER_ set) */
-    // LAB 8: Your code here
+    map_region(&kspace, UENVS, &kspace, (uintptr_t)envs, UENVS_SIZE, PROT_USER_ | PROT_R);
 
     for (int i = 0; i < NENV; i++) {
         envs[i].env_id = 0;
@@ -236,7 +237,7 @@ bind_functions(struct Env *env, uint8_t *binary, size_t size, uintptr_t image_st
             const char* sym_name = str_pool + offset;
             uintptr_t resolved_addr = find_function(sym_name);
             
-            if (resolved_addr != 0) {
+            if (resolved_addr != 0 && symbol_entry->st_value >= image_start && symbol_entry->st_value <= image_end) {
                 *(uintptr_t*)(symbol_entry->st_value) = resolved_addr;
             }
         }
@@ -459,10 +460,24 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
             // For now, we'll assume the memory is already mapped and accessible
             // In a real implementation, we would need to map the pages here
 
-            // Copy the segment data from the binary
+            // 1. Map the region as RWX
+            int rc = map_region(&env->address_space, ph[i].p_va, NULL, 0, ph[i].p_memsz, PROT_USER_ | ALLOC_ZERO | PROT_RWX);
+            if (rc) return rc;
+
+            // 2. Switch address space, memcpy and switch back
+            struct AddressSpace* old = switch_address_space(&env->address_space);
             memcpy((void*)ph[i].p_va, binary + ph[i].p_offset, ph[i].p_filesz);
-            // Clear the remaining part of the segment (BSS section)
-            memset((void*)(ph[i].p_va + ph[i].p_filesz), 0, ph[i].p_memsz - ph[i].p_filesz);
+            switch_address_space(old);
+
+            // 3. Determine required permissions
+            int perm = PROT_USER_;
+            if (ph[i].p_flags & ELF_PROG_FLAG_READ) perm |= PROT_R;
+            if (ph[i].p_flags & ELF_PROG_FLAG_WRITE) perm |= PROT_W;
+            if (ph[i].p_flags & ELF_PROG_FLAG_EXEC) perm |= PROT_X;
+
+            // 4. Remap the page with required permissions
+            rc = map_region(&env->address_space, ph[i].p_va, &env->address_space, ph[i].p_va, ph[i].p_memsz, perm);
+            if (rc) return rc;
 
             if (ph[i].p_va < image_start)
                 image_start = ph[i].p_va;
@@ -484,11 +499,22 @@ load_icode(struct Env *env, uint8_t *binary, size_t size) {
         return -E_INVALID_EXE;
     }
 
+    // Map the stack. Stack is RW (no execute) and user-accessible
+#ifdef CONFIG_KSPACE
+    map_region(&env->address_space, env->env_tf.tf_rsp - PAGE_SIZE * 2, NULL, 0, PAGE_SIZE * 2, PROT_USER_ | PROT_R | PROT_W | ALLOC_ZERO);
+#else
+    map_region(&env->address_space, USER_STACK_TOP - USER_STACK_SIZE, NULL, 0, USER_STACK_SIZE, PROT_USER_ | PROT_R | PROT_W | ALLOC_ZERO);
+#endif
+
+    env->binary = binary;
+    // Set the entry point in the trap frame
+    env->env_tf.tf_rip = elf->e_entry;
+
+#ifdef CONFIG_KSPACE
     if (bind_functions(env, binary, size, image_start, image_end) < 0) {
         return -E_INVALID_EXE;
     }
-    // Set the entry point in the trap frame
-    env->env_tf.tf_rip = elf->e_entry;
+#endif
 
     return 0;
 }
@@ -553,6 +579,9 @@ env_destroy(struct Env *env) {
 
     if ((env->env_status != ENV_FREE) && (env->env_status != ENV_DYING)) {
         if (env == curenv) {
+            /* Reset in_page_fault flags in case *current* environment
+             * is getting destroyed after performing invalid memory access. */
+            in_page_fault = 0;
             env_free(env);
             sched_yield();
         } else {
@@ -656,7 +685,8 @@ env_run(struct Env *env) {
     // Update its runs counter
     env->env_runs++;
 
-    // Step 2: Restore the environment's registers and start execution
+    // Step 2: Switch to env's address space and restore registers
+    switch_address_space(&env->address_space);
     env_pop_tf(&env->env_tf);
 
     // This function should never return

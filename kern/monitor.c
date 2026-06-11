@@ -88,35 +88,35 @@ mon_hello(int argc, char **argv, struct Trapframe *tf) {
 
 int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf) {
-    uint64_t rbp = read_rbp();
-    uint64_t rip;
+    uint64_t current_rbp = read_rbp();
+    struct Ripdebuginfo dbg_info;
 
     cprintf("Stack backtrace:\n");
 
-    while (rbp != 0) {
-        // The return address (RIP) is stored at [RBP + 8]
-        rip = *(uint64_t *)(rbp + 8);
+    while (current_rbp != 0) {
+        if (current_rbp <= MAX_USER_ADDRESS && (!curenv || curenv->env_status == ENV_FREE))
+        {
+            // If the env was never run or has stopped - the address space has been freed and we can't read the rbp
+            break;
+        }
 
-        // Print current frame
-        cprintf("  rbp %016lx  rip %016lx\n", rbp, rip);
+        struct AddressSpace* old = switch_address_space(current_rbp > MAX_USER_ADDRESS ? &kspace : &curenv->address_space);
+        uint64_t previous_rbp = *(uint64_t*)(current_rbp);
+        uint64_t current_rip = *(uint64_t*)(current_rbp + 8);
+        switch_address_space(old);
 
-        // Get debug information for this RIP
-        struct Ripdebuginfo info;
-        if (debuginfo_rip(rip, &info) == 0) {
-            // Calculate offset from function start
-            uintptr_t offset = rip - info.rip_fn_addr;
-
-            // Print debug info: file:line: function+offset
+        cprintf("  rbp %016lx  rip %016lx\n", current_rbp, current_rip);
+        if (debuginfo_rip((uintptr_t)current_rip, &dbg_info) == 0) {
+            uintptr_t offset = current_rip - dbg_info.rip_fn_addr;
             cprintf("    %s:%d: %.*s+%lu\n",
-                   info.rip_file,
-                   info.rip_line,
-                   info.rip_fn_namelen,
-                   info.rip_fn_name,
+                   dbg_info.rip_file,
+                   dbg_info.rip_line,
+                   dbg_info.rip_fn_namelen,
+                   dbg_info.rip_fn_name,
                    offset);
         }
 
-        // Move to the previous frame (previous RBP is stored at [RBP])
-        rbp = *(uint64_t *)rbp;
+        current_rbp = previous_rbp;
     }
 
     return 0;

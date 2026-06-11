@@ -114,12 +114,20 @@ platform_asan_init(void) {
 
     /* 1. Program segments (text, data, rodata, bss) */
     // LAB 8: Your code here
+    platform_asan_unpoison(&__text_start, &__text_end - &__text_start);
+    platform_asan_unpoison(&__data_start, &__data_end - &__data_start);
+    platform_asan_unpoison(&__rodata_start, &__rodata_end - &__rodata_start);
+    platform_asan_unpoison(&__bss_start, &__bss_end - &__bss_start);
 
     /* 2. Stacks (USER_EXCEPTION_STACK_TOP, USER_STACK_TOP) */
     // LAB 8: Your code here
+    platform_asan_unpoison((void*)(USER_EXCEPTION_STACK_TOP - USER_EXCEPTION_STACK_SIZE), USER_EXCEPTION_STACK_SIZE);
+    platform_asan_unpoison((void*)(USER_STACK_TOP - USER_STACK_SIZE), USER_STACK_SIZE);
 
     /* 3. Kernel exposed info (UENVS, UVSYS (only for lab 12)) */
     // LAB 8: Your code here
+    platform_asan_unpoison((void*)UENVS, UENVS_SIZE);
+    platform_asan_unpoison((void*)UVSYS, UVSYS_SIZE);
 
     // TODO NOTE: LAB 12 code may be here
 #if LAB >= 12
@@ -134,8 +142,42 @@ platform_asan_init(void) {
 
 void
 platform_asan_fatal(const char *msg, uptr p, size_t width, unsigned access_type) {
-    ASAN_LOG("Fatal error: %s (addr 0x%lx within i/o size 0x%lx of type %u), tracing:",
-             msg, (long)p, (long)width, access_type);
+    const char* access_type_str = NULL;
+    switch (access_type) {
+        case TYPE_LOAD:
+            access_type_str = "load";
+            break;
+        case TYPE_STORE:
+            access_type_str = "store";
+            break;
+        case TYPE_KFREE:
+            access_type_str = "kfree";
+            break;
+        case TYPE_ZFREE:
+            access_type_str = "zfree";
+            break;
+        case TYPE_FSFREE:
+            access_type_str = "fsfree";
+            break;
+        case TYPE_MEMLD:
+            access_type_str = "memld";
+            break;
+        case TYPE_MEMSTR:
+            access_type_str = "memstr";
+            break;
+        case TYPE_STRINGLD:
+            access_type_str = "stringld";
+            break;
+        case TYPE_STRINGSTR:
+            access_type_str = "stringstr";
+            break;
+        default:
+            access_type_str = "unknown";
+            break;
+    }
+
+    ASAN_LOG("Fatal error: %s (addr 0x%lx within i/o size 0x%lx of type %s), tracing:",
+             msg, (long)p, (long)width, access_type_str);
 
     ASAN_DEBUG_BREAK();
 

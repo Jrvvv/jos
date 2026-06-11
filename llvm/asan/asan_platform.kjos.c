@@ -67,8 +67,42 @@ platform_asan_poison(void *addr, size_t size) {
 
 void
 platform_asan_fatal(const char *msg, uptr p, size_t width, unsigned access_type) {
-    ASAN_LOG("Fatal error: %s (addr 0x%lx within i/o size 0x%lx of type %u), tracing:",
-             msg, (long)p, (long)width, access_type);
+    const char* access_type_str = NULL;
+    switch (access_type) {
+        case TYPE_LOAD:
+            access_type_str = "load";
+            break;
+        case TYPE_STORE:
+            access_type_str = "store";
+            break;
+        case TYPE_KFREE:
+            access_type_str = "kfree";
+            break;
+        case TYPE_ZFREE:
+            access_type_str = "zfree";
+            break;
+        case TYPE_FSFREE:
+            access_type_str = "fsfree";
+            break;
+        case TYPE_MEMLD:
+            access_type_str = "memld";
+            break;
+        case TYPE_MEMSTR:
+            access_type_str = "memstr";
+            break;
+        case TYPE_STRINGLD:
+            access_type_str = "stringld";
+            break;
+        case TYPE_STRINGSTR:
+            access_type_str = "stringstr";
+            break;
+        default:
+            access_type_str = "unknown";
+            break;
+    }
+
+    ASAN_LOG("Fatal error: %s (addr 0x%lx within i/o size 0x%lx of type %s), tracing:",
+             msg, (long)p, (long)width, access_type_str);
 
     ASAN_DEBUG_BREAK();
 
