@@ -33,6 +33,33 @@ bc_pgfault(struct UTrapframe *utf) {
      * Hint: first round addr to page boundary. fs/nvme.c has code to read
      * the disk. */
     // LAB 10: Your code here
+    struct NvmeNamespaceInfo* nvme_ns_info = nvme_get_ns_info();
+    if (!nvme_ns_info)
+        panic("failed to get NVMe namespace info\n");
+
+    if (nvme_ns_info->blocksize > BLKSIZE)
+        panic("nvme has too big block size\n");
+
+    uint64_t nvme_blockno = (blockno * BLKSIZE) / nvme_ns_info->blocksize;
+    if (nvme_blockno > nvme_ns_info->blockcount)
+        panic("reading non-existent nvme block %016lx out of %016lx\n", nvme_blockno, nvme_ns_info->blockcount);
+
+    uint64_t nvme_block_cnt = BLKSIZE / nvme_ns_info->blocksize;
+    if (nvme_blockno + nvme_block_cnt > nvme_ns_info->blockcount)
+        panic("reading some non-existent nvme blocks [%016lx, %016lx] out of %016lx\n", nvme_blockno, nvme_blockno + nvme_block_cnt, nvme_ns_info->blockcount);
+
+    int rc = sys_alloc_region(CURENVID, ROUNDDOWN(diskaddr(blockno), PAGE_SIZE), BLKSIZE, PTE_SYSCALL);
+    if (rc)
+        panic("failed to allocate region for block %08x\n", blockno);
+
+    // Remap the region to force allocate it (NVMe uses physical addresses, if page fault changes it - it will break
+    rc = sys_map_region(CURENVID, ROUNDDOWN(diskaddr(blockno), PAGE_SIZE), CURENVID, ROUNDDOWN(diskaddr(blockno), PAGE_SIZE), BLKSIZE, PTE_SYSCALL);
+    if (rc)
+        panic("failed to remap the region: %i\n", rc);
+
+    rc = nvme_read(nvme_blockno, ROUNDDOWN(diskaddr(blockno), PAGE_SIZE), nvme_block_cnt);
+    if (rc)
+        panic("failed to read nvme: %i\n", rc);
 
     return 1;
 }
@@ -55,8 +82,31 @@ flush_block(void *addr) {
         panic("reading non-existent block %08x out of %08x\n", blockno, super->s_nblocks);
 
     // LAB 10: Your code here.
-    (void)res;
+    if (is_page_dirty(addr) && is_page_present(addr))
+    {
+        struct NvmeNamespaceInfo* nvme_ns_info = nvme_get_ns_info();
+        if (!nvme_ns_info)
+            panic("failed to get NVMe namespace info\n");
 
+        if (nvme_ns_info->blocksize > BLKSIZE)
+            panic("nvme has too big block size\n");
+
+        uint64_t nvme_blockno = (blockno * BLKSIZE) / nvme_ns_info->blocksize;
+        if (nvme_blockno > nvme_ns_info->blockcount)
+            panic("reading non-existent nvme block %016lx out of %016lx\n", nvme_blockno, nvme_ns_info->blockcount);
+
+        uint64_t nvme_block_cnt = BLKSIZE / nvme_ns_info->blocksize;
+        if (nvme_blockno + nvme_block_cnt > nvme_ns_info->blockcount)
+            panic("reading some non-existent nvme blocks [%016lx, %016lx] out of %016lx\n", nvme_blockno, nvme_blockno + nvme_block_cnt, nvme_ns_info->blockcount);
+
+        res = nvme_write(nvme_blockno, ROUNDDOWN(diskaddr(blockno), PAGE_SIZE), nvme_block_cnt);
+        if (res)
+            panic("failed to write data to disk: %i\n", res);
+
+        res = sys_map_region(CURENVID, ROUNDDOWN(diskaddr(blockno), PAGE_SIZE), CURENVID, ROUNDDOWN(diskaddr(blockno), PAGE_SIZE), BLKSIZE, PTE_SYSCALL);
+        if (res)
+            panic("failed to remap the region: %i\n", res);
+    }
 
     assert(!is_page_dirty(addr));
 }
@@ -68,6 +118,7 @@ check_bc(void) {
     struct Super backup;
 
     /* Back up super block */
+    DEBUG("backup superblock");
     memmove(&backup, diskaddr(1), sizeof backup);
 
     /* Smash it */

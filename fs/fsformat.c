@@ -26,7 +26,10 @@
 /* Typedef the types that inc/mmu.h needs. */
 typedef uint32_t physaddr_t;
 typedef uint32_t off_t;
+#if __STDC_VERSION__ < 202311L
+// There is a bool now, cannot typedef it
 typedef int bool;
+#endif
 
 #include <inc/mmu.h>
 #include <inc/fs.h>

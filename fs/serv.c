@@ -191,6 +191,8 @@ serve_set_size(envid_t envid, union Fsipc *ipc) {
 int
 serve_read(envid_t envid, union Fsipc *ipc) {
     struct Fsreq_read *req = &ipc->read;
+    struct OpenFile *o;
+    int r;
 
     if (debug) {
         cprintf("serve_read %08x %08x %08x\n",
@@ -198,8 +200,13 @@ serve_read(envid_t envid, union Fsipc *ipc) {
     }
 
     // LAB 10: Your code here
+    if ((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
+        return r;
 
-    return -1;
+    r = file_read(o->o_file, ipc->readRet.ret_buf, req->req_n, o->o_fd->fd_offset);
+    if (r >= 0)
+        o->o_fd->fd_offset += r;
+    return r;
 }
 
 /* Write req->req_n bytes from req->req_buf to req_fileid, starting at
@@ -209,12 +216,21 @@ serve_read(envid_t envid, union Fsipc *ipc) {
 int
 serve_write(envid_t envid, union Fsipc *ipc) {
     struct Fsreq_write *req = &ipc->write;
+    struct OpenFile *o;
+    int r;
+
     if (debug)
         cprintf("serve_write %08x %08x %08x\n", envid, req->req_fileid, (uint32_t)req->req_n);
 
     // LAB 10: Your code here
+    if ((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
+        return r;
 
-    return -1;
+    r = file_write(o->o_file, req->req_buf, req->req_n, o->o_fd->fd_offset);
+    if (r >= 0)
+        o->o_fd->fd_offset += r;
+
+    return r;
 }
 
 /* Stat ipc->stat.req_fileid.  Return the file's struct Stat to the
@@ -224,7 +240,8 @@ serve_stat(envid_t envid, union Fsipc *ipc) {
     struct Fsreq_stat *req = &ipc->stat;
     struct Fsret_stat *ret = &ipc->statRet;
 
-    if (debug) cprintf("serve_stat %08x %08x\n", envid, req->req_fileid);
+    if (debug)
+        cprintf("serve_stat %08x %08x\n", envid, req->req_fileid);
 
     struct OpenFile *o;
     int res = openfile_lookup(envid, req->req_fileid, &o);

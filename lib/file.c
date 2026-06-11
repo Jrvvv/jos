@@ -25,7 +25,8 @@ fsipc(unsigned type, void *dstva) {
 
     ipc_send(fsenv, type, &fsipcbuf, PAGE_SIZE, PROT_RW);
     size_t maxsz = PAGE_SIZE;
-    return ipc_recv(NULL, dstva, &maxsz, NULL);
+    int rc = ipc_recv(NULL, dstva, &maxsz, NULL);
+    return rc;
 }
 
 static int devfile_flush(struct Fd *fd);
@@ -113,10 +114,21 @@ devfile_read(struct Fd *fd, void *buf, size_t n) {
      * system server. */
 
     // LAB 10: Your code here:
-    size_t res0 = 0;
-    (void)fd, (void)buf, (void)n;
-
-    return res0;
+    size_t read_count = 0;
+    while (read_count < n) {
+        size_t to_read = MIN(n - read_count, sizeof(fsipcbuf.readRet.ret_buf));
+        fsipcbuf.read.req_fileid = fd->fd_file.id;
+        fsipcbuf.read.req_n = to_read;
+        ssize_t res = fsipc(FSREQ_READ, fsipcbuf.readRet.ret_buf);
+        if (res < 0)
+            return res;
+        if (res > 0)
+            memcpy(buf + read_count, fsipcbuf.readRet.ret_buf, res);
+        read_count += res;
+        if (res < to_read)
+            break;
+    }
+    return read_count;
 }
 
 /* Write at most 'n' bytes from 'buf' to 'fd' at the current seek position.
@@ -133,10 +145,23 @@ devfile_write(struct Fd *fd, const void *buf, size_t n) {
      * potentially required. */
 
     // LAB 10: Your code here:
-    size_t res0 = 0;
-    (void)fd, (void)buf, (void)n;
+    size_t written = 0;
+    fsipcbuf.write.req_fileid = fd->fd_file.id;
+    fsipcbuf.write.req_n = MIN(sizeof(fsipcbuf.write.req_buf), n - written);
 
-    return res0;
+    ssize_t res = 0;
+    memcpy(fsipcbuf.write.req_buf, buf, fsipcbuf.write.req_n);
+    while (written < n) {
+        res = fsipc(FSREQ_WRITE, NULL);
+        if (res > 0) {
+            written += res;
+            fsipcbuf.write.req_n = MIN(sizeof(fsipcbuf.write.req_buf), n - written);
+            memcpy(fsipcbuf.write.req_buf, buf, fsipcbuf.write.req_n);
+        }
+        else
+            return res;
+    }
+    return res;
 }
 
 /* Get file information */

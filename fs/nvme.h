@@ -377,6 +377,8 @@ struct NvmeController {
 
 int nvme_init(void);
 
+struct NvmeNamespaceInfo* nvme_get_ns_info(void);
+
 int nvme_write(uint64_t secno, const void *src, size_t nsecs);
 int nvme_read(uint64_t secno, void *dst, size_t nsecs);
 #endif

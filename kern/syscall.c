@@ -214,7 +214,7 @@ sys_alloc_region(envid_t envid, uintptr_t addr, size_t size, int perm) {
 
     if (!check_perm(perm)) return -E_INVAL;
 
-    perm |= PROT_USER_;
+    perm |= PROT_USER_ | PROT_LAZY;
     if (!(perm & ALLOC_ONE) && !(perm & ALLOC_ZERO)) perm |= ALLOC_ZERO;
 
     rc = map_region(&env->address_space, addr, NULL, 0, size, perm);
@@ -308,8 +308,22 @@ sys_unmap_region(envid_t envid, uintptr_t va, size_t size) {
 static int
 sys_map_physical_region(uintptr_t pa, envid_t envid, uintptr_t va, size_t size, int perm) {
     // LAB 10: Your code here
+    struct Env* env = envs;
+    int rc = envid2env(envid, &env, true);
+    if (rc) return rc;
+    if (env->env_type != ENV_TYPE_FS) return -E_BAD_ENV;
 
-    return 0;
+    if (va >= MAX_USER_ADDRESS) return -E_INVAL;
+    if (va & CLASS_MASK(0)) return -E_INVAL;
+    if (pa & CLASS_MASK(0)) return -E_INVAL;
+    if (size & CLASS_MASK(0)) return -E_INVAL;
+
+    if (!check_perm(perm)) return -E_INVAL;
+    if (perm & (PROT_SHARE | PROT_COMBINE | PROT_LAZY)) return -E_INVAL;
+    perm |= MAP_USER_MMIO | PROT_USER_;
+
+    rc = map_physical_region(&curenv->address_space, va, pa, size, perm);
+    return rc;
 }
 
 /* Try to send 'value' to the target env 'envid'.
@@ -420,7 +434,19 @@ static int
 sys_region_refs(uintptr_t addr, size_t size, uintptr_t addr2, uintptr_t size2) {
     // LAB 10: Your code here
 
-    return 0;
+    if (addr > MAX_USER_ADDRESS) return -E_INVAL;
+    if (!size) return -E_INVAL;
+    if (size & CLASS_MASK(0)) return -E_INVAL;
+
+    int refs1 = region_maxref(&curenv->address_space, addr, size);
+    int refs2 = 0;
+    if (addr2 < MAX_USER_ADDRESS) {
+        if (!size2) return -E_INVAL;
+        if (size2 & CLASS_MASK(0)) return -E_INVAL;
+        refs2 = region_maxref(&curenv->address_space, addr2, size2);
+    }
+
+    return refs1 - refs2;
 }
 
 /* Dispatches to the correct kernel function, passing the arguments. */
@@ -443,6 +469,8 @@ syscall(uintptr_t syscallno, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t
             return sys_alloc_region(a1, a2, a3, a4);
         case SYS_map_region:
             return sys_map_region(a1, a2, a3, a4, a5, a6);
+        case SYS_map_physical_region:
+            return sys_map_physical_region(a1, a2, a3, a4, a5);
         case SYS_unmap_region:
             return sys_unmap_region(a1, a2, a3);
         case SYS_region_refs:
