@@ -53,7 +53,7 @@ platform_abort() {
     _panic("asan", 0, "platform_abort");
 }
 
-#if LAB > 8
+// #if LAB > 8
 
 #define SHADOW_STEP 8192
 
@@ -68,10 +68,17 @@ platform_abort() {
 static bool
 asan_shadow_allocator(struct UTrapframe *utf) {
     // LAB 9: Your code here
-    (void)utf;
-    return 1;
+    if (SHADOW_ADDRESS_VALID(utf->utf_fault_va)) {
+        if (SHADOW_ADDRESS_VALID(ADDRESS_FOR_SHADOW(utf->utf_fault_va)))
+            return 0;
+        int rc = sys_alloc_region(CURENVID, (void *)(ROUNDDOWN(utf->utf_fault_va, PAGE_SIZE)), PAGE_SIZE, PROT_R | PROT_W | PROT_X | ALLOC_ONE);
+        if (rc) return 0;
+        return 1;
+    }
+
+    return 0;
 }
-#endif
+// #endif
 
 
 /* envs and vsyscall page shadow */

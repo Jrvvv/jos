@@ -34,12 +34,10 @@ extern void align_thndlr(void);   // T_ALIGN
 extern void mchk_thndlr(void);    // T_MCHK
 extern void simderr_thndlr(void); // T_SIMDERR
 
-extern void syscall_thndlr(void); // T_SYSCALL
-
-#ifdef CONFIG_KSPACE
 extern void clock_thdlr(void);
 extern void timer_thdlr(void);
-#endif
+
+extern void syscall_thndlr(void); // T_SYSCALL
 
 static struct Taskstate ts;
 
@@ -150,6 +148,9 @@ trap_init(void) {
     idt[T_MCHK]     = GATE(0, GD_KT, (uintptr_t)mchk_thndlr, 0);
     idt[T_SIMDERR]  = GATE(0, GD_KT, (uintptr_t)simderr_thndlr, 0);
 
+    idt[IRQ_OFFSET + IRQ_TIMER] = GATE(0, GD_KT, (uintptr_t)timer_thdlr, 0);
+    idt[IRQ_OFFSET + IRQ_CLOCK] = GATE(0, GD_KT, (uintptr_t)clock_thdlr, 0);
+
     idt[T_SYSCALL]  = GATE(0, GD_KT, (uintptr_t)syscall_thndlr, 3);
 
     /* Setup #PF handler dedicated stack
@@ -240,6 +241,30 @@ print_trapframe(struct Trapframe *tf) {
                 tf->tf_err & FEC_W ? "write" : tf->tf_err & FEC_I ? "execute" :
                                                                     "read",
                 tf->tf_err & FEC_P ? "protection" : "not-present");
+    } else if (tf->tf_trapno == T_GPFLT) {
+        if (tf->tf_err != 0) {
+            int tbl = ((tf->tf_err >> 1) & 0b11);
+            const char* table = NULL;
+            switch (tbl) {
+                case 0b00:
+                    table = "GDT";
+                    break;
+                case 0b01:
+                    table = "IDT";
+                    break;
+                case 0b10:
+                    table = "LDT";
+                    break;
+                case 0b11:
+                    table = "IDT";
+                    break;
+                }
+                cprintf(" [%s, %s, selector: 0x%lx]\n",
+                        tf->tf_err & 0b1 ? "External" : "Internal",
+                        table,
+                        tf->tf_err >> 3);
+        } else
+            cprintf("\n");
     } else
         cprintf("\n");
 
@@ -285,6 +310,7 @@ trap_dispatch(struct Trapframe *tf) {
     case T_PGFLT:
         /* Handle processor exceptions. */
         // LAB 9: Your code here.
+        page_fault_handler(tf);
         return;
     case T_BRKPT:
         // LAB 8: Your code here.
@@ -409,7 +435,6 @@ trap(struct Trapframe *tf) {
 static _Noreturn void
 page_fault_handler(struct Trapframe *tf) {
     uintptr_t cr2 = rcr2();
-    (void)cr2;
 
     /* Handle kernel-mode page faults. */
     if (!(tf->tf_err & FEC_U)) {
@@ -452,28 +477,62 @@ page_fault_handler(struct Trapframe *tf) {
     static_assert(UTRAP_RIP == offsetof(struct UTrapframe, utf_rip), "UTRAP_RIP should be equal to RIP offset");
     static_assert(UTRAP_RSP == offsetof(struct UTrapframe, utf_rsp), "UTRAP_RSP should be equal to RSP offset");
 
-    /* Force allocation of exception stack page to prevent memcpy from
-     * causing pagefault during another pagefault */
-    // LAB 9: Your code here:
-
     /* Force allocate exception stack page to prevent memcpy from
      * causing pagefault during another pagefault */
     // LAB 9: Your code here:
+    force_alloc_page(&curenv->address_space, USER_EXCEPTION_STACK_TOP - PAGE_SIZE, 0);
 
-    /* Assert existance of exception stack */
+    // If we are in exception stack - it means the call is recursive
+    int recursive = tf->tf_rsp >= USER_EXCEPTION_STACK_TOP - PAGE_SIZE && tf->tf_rsp < USER_EXCEPTION_STACK_TOP;
+
+    // Calculate how much stack we need from kernel side
+    size_t required_size = 0;
+    if (recursive) {
+        required_size = sizeof(struct UTrapframe) + sizeof(uint64_t);
+    } else {
+        required_size = sizeof(struct UTrapframe);
+    }
+
+    /* Assert existence of exception stack */
     // LAB 9: Your code here:
+    user_mem_assert(curenv, (void*)(USER_EXCEPTION_STACK_TOP - PAGE_SIZE), PAGE_SIZE, PROT_R | PROT_W);
+    user_mem_assert(curenv, (void*)(curenv->env_tf.tf_rsp - required_size), required_size, PROT_R | PROT_W);
+
+    // If there is no handler - quit immediately
+    if (!curenv->env_pgfault_upcall) {
+        env_destroy(curenv);
+    }
 
     /* Build local copy of UTrapframe */
     // LAB 9: Your code here:
+    struct UTrapframe utf;
+    memset(&utf, 0, sizeof(struct UTrapframe));
+    utf.utf_fault_va = cr2;
+    utf.utf_err = tf->tf_err;
+    utf.utf_regs = tf->tf_regs;
+    utf.utf_rip = tf->tf_rip;
+    utf.utf_rflags = tf->tf_rflags;
+    utf.utf_rsp = tf->tf_rsp;
 
     /* And then copy it userspace (nosan_memcpy()) */
     // LAB 9: Your code here:
+    if (recursive) {
+        tf->tf_rsp -= sizeof(uint64_t);
+        nosan_memset((void*)tf->tf_rsp, 0, sizeof(uint64_t));
+    } else {
+        tf->tf_rsp = USER_EXCEPTION_STACK_TOP;
+    }
+    tf->tf_rsp -= sizeof(struct UTrapframe);
+    nosan_memcpy((void*)tf->tf_rsp, &utf, sizeof(struct UTrapframe));
 
     /* Reset in_page_fault flag */
     // LAB 9: Your code here:
+    in_page_fault = 0;
 
     /* Rerun current environment */
     // LAB 9: Your code here:
+    tf->tf_rip = (uintptr_t)curenv->env_pgfault_upcall;
+    env_run(curenv);
 
     while (1)
         ;

@@ -115,6 +115,9 @@ TRAPHANDLER     (align_thndlr, T_ALIGN)
 TRAPHANDLER_NOEC(mchk_thndlr, T_MCHK)
 TRAPHANDLER_NOEC(simderr_thndlr, T_SIMDERR)
 
+TRAPHANDLER_NOEC(timer_thdlr, IRQ_OFFSET + IRQ_TIMER)
+TRAPHANDLER_NOEC(clock_thdlr, IRQ_OFFSET + IRQ_CLOCK)
+
 TRAPHANDLER_NOEC(syscall_thndlr, T_SYSCALL)
 
 #endif

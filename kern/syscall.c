@@ -81,7 +81,11 @@ sys_env_destroy(envid_t envid) {
                 curenv->env_id, env->env_id);
     }
 #endif
-    env_destroy(env);
+    env_free(env);
+    if (env == curenv) {
+        sched_yield();
+    }
+
     return 0;
 }
 
@@ -89,6 +93,7 @@ sys_env_destroy(envid_t envid) {
 static void
 sys_yield(void) {
     // LAB 9: Your code here
+    sched_yield();
 }
 
 /* Allocate a new environment.
@@ -104,7 +109,16 @@ sys_exofork(void) {
      * will appear to return 0. */
 
     // LAB 9: Your code here
-    return 0;
+    struct Env* newEnv = NULL;
+    int rc = env_alloc(&newEnv, curenv->env_id, ENV_TYPE_USER);
+    if (rc) return rc;
+
+    newEnv->env_status = ENV_NOT_RUNNABLE;
+    memcpy(&newEnv->env_tf, &curenv->env_tf, sizeof(struct Trapframe));
+    // RAX holds the syscall return value. Need to return 0 for child
+    newEnv->env_tf.tf_regs.reg_rax = 0;
+
+    return newEnv->env_id;
 }
 
 /* Set envid's env_status to status, which must be ENV_RUNNABLE
@@ -123,6 +137,18 @@ sys_env_set_status(envid_t envid, int status) {
      * envid's status. */
 
     // LAB 9: Your code here
+    struct Env* env = envs;
+    int rc = envid2env(envid, &env, true);
+    if (rc) return rc;
+
+    switch (status) {
+        case ENV_RUNNABLE:
+        case ENV_NOT_RUNNABLE:
+            env->env_status = status;
+            break;
+        default:
+            return -E_INVAL;
+    }
 
     return 0;
 }
@@ -138,8 +164,19 @@ sys_env_set_status(envid_t envid, int status) {
 static int
 sys_env_set_pgfault_upcall(envid_t envid, void *func) {
     // LAB 9: Your code here:
+    struct Env* env = envs;
+    int rc = envid2env(envid, &env, true);
+    if (rc) return rc;
 
+    env->env_pgfault_upcall = func;
     return 0;
+}
+
+int check_perm(int perm)
+{
+    // This flags are fine
+    perm &= ~(ALLOC_ZERO | ALLOC_ONE);
+    return perm <= PROT_ALL;
 }
 
 /* Allocate a region of memory and map it at 'va' with permission
@@ -168,8 +205,20 @@ sys_env_set_pgfault_upcall(envid_t envid, void *func) {
 static int
 sys_alloc_region(envid_t envid, uintptr_t addr, size_t size, int perm) {
     // LAB 9: Your code here:
+    struct Env* env = envs;
+    int rc = envid2env(envid, &env, true);
+    if (rc) return rc;
 
-    return 0;
+    if (addr >= MAX_USER_ADDRESS) return -E_INVAL;
+    if (addr & CLASS_MASK(0)) return -E_INVAL;
+
+    if (!check_perm(perm)) return -E_INVAL;
+
+    perm |= PROT_USER_;
+    if (!(perm & ALLOC_ONE) && !(perm & ALLOC_ZERO)) perm |= ALLOC_ZERO;
+
+    rc = map_region(&env->address_space, addr, NULL, 0, size, perm);
+    return rc;
 }
 
 /* Map the region of memory at 'srcva' in srcenvid's address space
@@ -196,8 +245,25 @@ static int
 sys_map_region(envid_t srcenvid, uintptr_t srcva,
                envid_t dstenvid, uintptr_t dstva, size_t size, int perm) {
     // LAB 9: Your code here
+    struct Env* src_env = envs;
+    int rc = envid2env(srcenvid, &src_env, true);
+    if (rc) return rc;
 
-    return 0;
+    struct Env* dst_env = envs;
+    rc = envid2env(dstenvid, &dst_env, true);
+    if (rc) return rc;
+
+    if (srcva > MAX_USER_ADDRESS) return -E_INVAL;
+    if (srcva & CLASS_MASK(0)) return -E_INVAL;
+    if (dstva > MAX_USER_ADDRESS) return -E_INVAL;
+    if (dstva & CLASS_MASK(0)) return -E_INVAL;
+
+    if (!check_perm(perm)) return -E_INVAL;
+    perm |= PROT_USER_;
+    if ((perm & ALLOC_ONE) || (perm & ALLOC_ZERO)) return -E_INVAL;
+
+    rc = map_region(&dst_env->address_space, dstva, &src_env->address_space, srcva, size, perm);
+    return rc;
 }
 
 /* Unmap the region of memory at 'va' in the address space of 'envid'.
@@ -212,6 +278,14 @@ sys_unmap_region(envid_t envid, uintptr_t va, size_t size) {
     /* Hint: This function is a wrapper around unmap_region(). */
 
     // LAB 9: Your code here
+    struct Env* env = envs;
+    int rc = envid2env(envid, &env, true);
+    if (rc) return rc;
+
+    if (va >= MAX_USER_ADDRESS) return -E_INVAL;
+    if (va & CLASS_MASK(0)) return -E_INVAL;
+
+    unmap_region(&env->address_space, va, size);
 
     return 0;
 }
@@ -259,6 +333,29 @@ sys_unmap_region(envid_t envid, uintptr_t va, size_t size) {
 static int
 sys_ipc_try_send(envid_t envid, uint32_t value, uintptr_t srcva, size_t size, int perm) {
     // LAB 9: Your code here
+    struct Env* dst_env = envs;
+    int rc = envid2env(envid, &dst_env, false);
+    if (rc) return rc;
+
+    if (!dst_env->env_ipc_recving) return -E_IPC_NOT_RECV;
+
+    size_t new_size = 0;
+    if (srcva < MAX_USER_ADDRESS && dst_env->env_ipc_dstva < MAX_USER_ADDRESS) {
+        if (srcva & CLASS_MASK(0)) return -E_INVAL;
+        if (!check_perm(perm)) return -E_INVAL;
+        int flags = perm | PROT_USER_ | PROT_SHARE;
+        if ((perm & ALLOC_ONE) || (perm & ALLOC_ZERO)) return -E_INVAL;
+        new_size = MIN(size, dst_env->env_ipc_maxsz);
+        int rc = map_region(&dst_env->address_space, dst_env->env_ipc_dstva, &curenv->address_space, srcva, new_size, flags);
+        if (rc) return rc;
+    }
+
+    dst_env->env_ipc_recving = 0;
+    dst_env->env_ipc_maxsz = new_size;
+    dst_env->env_ipc_from = curenv->env_id;
+    dst_env->env_ipc_value = value;
+    dst_env->env_ipc_perm = perm;
+    dst_env->env_status = ENV_RUNNABLE;
 
     return 0;
 }
@@ -279,7 +376,21 @@ sys_ipc_try_send(envid_t envid, uint32_t value, uintptr_t srcva, size_t size, in
 static int
 sys_ipc_recv(uintptr_t dstva, uintptr_t maxsize) {
     // LAB 9: Your code here
+    if (dstva < MAX_USER_ADDRESS) {
+        if (dstva & CLASS_MASK(0)) return -E_INVAL;
+        if (!maxsize) return -E_INVAL;
+        if (maxsize & CLASS_MASK(0)) return -E_INVAL;
+    }
 
+    curenv->env_ipc_dstva = dstva;
+    curenv->env_ipc_maxsz = maxsize;
+    curenv->env_ipc_recving = 1;
+    curenv->env_status = ENV_NOT_RUNNABLE;
+
+    // Manually write the syscall return code
+    curenv->env_tf.tf_regs.reg_rax = 0;
+
+    sched_yield();
     return 0;
 }
 
@@ -306,6 +417,29 @@ syscall(uintptr_t syscallno, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t
             return sys_getenvid();
         case SYS_env_destroy:
             return sys_env_destroy(a1);
+        case SYS_alloc_region:
+            return sys_alloc_region(a1, a2, a3, a4);
+        case SYS_map_region:
+            return sys_map_region(a1, a2, a3, a4, a5, a6);
+        case SYS_unmap_region:
+            return sys_unmap_region(a1, a2, a3);
+        case SYS_region_refs:
+            return sys_region_refs(a1, a2, a3, a4);
+        case SYS_exofork:
+            return sys_exofork();
+        case SYS_env_set_status:
+            return sys_env_set_status(a1, a2);
+        // case SYS_env_set_trapframe:
+        //    return sys_env_set_trapframe(a1, a2);
+        case SYS_env_set_pgfault_upcall:
+            return sys_env_set_pgfault_upcall(a1, (void*)a2);
+        case SYS_yield:
+            sys_yield();
+            return 0; // Never reached
+        case SYS_ipc_try_send:
+            return sys_ipc_try_send(a1, a2, a3, a4, a5);
+        case SYS_ipc_recv:
+            return sys_ipc_recv(a1, a2);
         default:
             return -E_NO_SYS;
     }

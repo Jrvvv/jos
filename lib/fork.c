@@ -20,9 +20,40 @@ envid_t
 fork(void) {
     // LAB 9: Your code here.
 
-    panic("fork() is not implemented");
+    envid_t envid = sys_exofork();
+    if (envid < 0)
+        panic("sys_exofork: %i", envid);
 
-    return 0;
+    if (envid == 0) {
+        // Child needs to update thisenv
+        thisenv = &envs[ENVX(sys_getenvid())];
+        return 0;
+    }
+
+    // Return code for the sys calls
+    int r = 0;
+
+    // Parent needs to prepare address space
+    if ((r = sys_map_region(0, NULL, envid, NULL, MAX_USER_ADDRESS, PROT_ALL | PROT_LAZY | PROT_COMBINE)) < 0) {
+        sys_env_destroy(envid);
+        return r;
+    }
+
+    // Copy the page fault handler if it exists
+    if (thisenv->env_pgfault_upcall) {
+        if ((r = sys_env_set_pgfault_upcall(envid, thisenv->env_pgfault_upcall) < 0)) {
+            sys_env_destroy(envid);
+            return r;
+        }
+    }
+
+    // And start the child
+    if ((r = sys_env_set_status(envid, ENV_RUNNABLE)) < 0) {
+        sys_env_destroy(envid);
+        return r;
+    }
+
+    return envid;
 }
 
 envid_t

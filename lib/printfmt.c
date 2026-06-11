@@ -188,7 +188,7 @@ vprintfmt(void (*putch)(int, void *), void *put_arg, const char *fmt, va_list ap
                 while (width-- > 0) putch(padc, put_arg);
             }
 
-            for (; (ch = *ptr++) && (precision < 0 || --precision >= 0); width--) {
+            for (; (precision < 0 || --precision >= 0) && (ch = *ptr++); width--) {
                 putch(altflag && (ch < ' ' || ch > '~') ? '?' : ch, put_arg);
             }
 
