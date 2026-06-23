@@ -337,14 +337,12 @@ trap_dispatch(struct Trapframe *tf) {
         // rtc_timer_pic_handle();
 
         assert(timer_for_schedule);
+        // LAB 11: Your code here
+        ((uint64_t*)vsys)[VSYS_gettime] = gettime();
         timer_for_schedule->handle_interrupts();
 
         sched_yield();
-        // LAB 4: Your code here
-        // LAB 5: Your code here
-        // LAB 12: Your code here
         return;
-        // LAB 11: Your code here
         /* Handle keyboard (IRQ_KBD + kbd_intr()) and
          * serial (IRQ_SERIAL + serial_intr()) interrupts. */
     case IRQ_OFFSET + IRQ_KBD:

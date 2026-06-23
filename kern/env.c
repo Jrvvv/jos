@@ -98,6 +98,8 @@ env_init(void) {
      * Don't forget about rounding.
      * kzalloc_region only works with current_space != NULL */
     // LAB 12: Your code here
+    vsys = kzalloc_region(ROUNDUP(UVSYS_SIZE, PAGE_SIZE));
+    map_region(&kspace, UVSYS, &kspace, (uintptr_t)vsys, UVSYS_SIZE, PROT_USER_ | PROT_R);
 
     /* Allocate envs array with kzalloc_region().
      * Don't forget about rounding.

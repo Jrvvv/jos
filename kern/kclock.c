@@ -111,8 +111,19 @@ get_time(void) {
 int
 gettime(void) {
     // LAB 12: your code here
-    int res = 0;
-    return res;
+    int t1 = 0, t2 = 0;
+    do {
+        // Wait for RTC_UPDATE_IN_PROGRESS to become 0
+        while (cmos_read8(RTC_AREG) & RTC_UPDATE_IN_PROGRESS) {
+            asm volatile("pause");
+        }
+        // Read timestamp twice
+        t1 = get_time();
+        t2 = get_time();
+        // Check for equality. If not equal - try again
+    } while (t1 != t2);
+
+    return t2;
 }
 
 void

@@ -155,7 +155,7 @@ i386_init(void) {
     env_init();
 
     /* Choose the timer used for scheduling: hpet or pit */
-    timers_schedule("rtc");
+    timers_schedule("hpet0");
 
 #ifdef CONFIG_KSPACE
     /* Touch all you want */
@@ -176,7 +176,7 @@ i386_init(void) {
     ENV_CREATE(TEST, ENV_TYPE_USER);
 #else
     /* Touch all you want. */
-    ENV_CREATE(user_spawnhello, ENV_TYPE_USER);
+    ENV_CREATE(user_date, ENV_TYPE_USER);
 #endif /* TEST* */
 #endif
 
