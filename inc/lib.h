@@ -114,6 +114,7 @@ envid_t fork(void);
 envid_t sfork(void);
 
 /* uvpt.c */
+int foreach_shared_region(int (*fun)(void *start, void *end, void *arg), void *arg);
 pte_t get_uvpt_entry(void *addr);
 uintptr_t get_phys_addr(void *va);
 int get_prot(void *va);
@@ -136,6 +137,10 @@ int open(const char *path, int mode);
 int ftruncate(int fd, off_t size);
 int remove(const char *path);
 int sync(void);
+
+/* spawn.c */
+envid_t spawn(const char *program, const char **argv);
+envid_t spawnl(const char *program, const char *arg0, ...);
 
 /* console.c */
 void cputchar(int c);

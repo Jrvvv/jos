@@ -54,3 +54,15 @@ bool
 is_page_present(void *va) {
     return get_uvpt_entry(va) & PTE_P;
 }
+
+int
+foreach_shared_region(int (*fun)(void *start, void *end, void *arg), void *arg) {
+    /* Calls fun() for every shared region.
+     * NOTE: Skip over larger pages/page directories for efficiency */
+    // LAB 11: Your code here:
+
+    int res = 0;
+    (void)fun, (void)arg;
+
+    return res;
+}

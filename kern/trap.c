@@ -160,6 +160,8 @@ trap_init(void) {
      * code execution */
     idt[T_PGFLT].gd_ist = 1;
 
+    // LAB 11: Your code here
+
     /* Per-CPU setup */
     trap_init_percpu();
 }
@@ -334,6 +336,9 @@ trap_dispatch(struct Trapframe *tf) {
 
         sched_yield();
         return;
+        // LAB 11: Your code here
+        /* Handle keyboard (IRQ_KBD + kbd_intr()) and
+         * serial (IRQ_SERIAL + serial_intr()) interrupts. */
     default:
         print_trapframe(tf);
         if (!(tf->tf_cs & 3))
