@@ -333,8 +333,8 @@ get_bar_address(struct PciDevice *pcid, uint32_t barno) {
     if (pcid == NULL || barno >= PCI_BAR_COUNT)
         return 0;
 
-    uintptr_t base_addr = pcid->bars[0].base_address;
-    if (pcid->bars[0].address_is_64bits)
+    uintptr_t base_addr = pcid->bars[barno].base_address;
+    if (pcid->bars[barno].address_is_64bits)
         base_addr |= (uint64_t)(pcie_io.read32(pcid, PCI_REG_BAR0 + 4)) << 32;
 
     return base_addr;
