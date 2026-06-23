@@ -265,7 +265,7 @@ static int
 map_segment(envid_t child, uintptr_t va, size_t memsz,
             int fd, size_t filesz, off_t fileoffset, int perm) {
 
-    // cprintf("map_segment %x+%x\n", va, memsz);
+    // cprintf("map_segment %lx+%lx (filesz = %lx)\n", va, memsz, filesz);
 
     /* Fixup unaligned destination */
     int res = PAGE_OFFSET(va);
@@ -281,11 +281,35 @@ map_segment(envid_t child, uintptr_t va, size_t memsz,
      * for each program segment (HUGE_PAGE_SIZE) */
 
     /* Allocate filesz - memsz in child */
-    /* Allocate filesz in parent to UTEMP */
-    /* seek() fd to fileoffset  */
-    /* read filesz to UTEMP */
-    /* Map read section conents to child */
-    /* Unmap it from parent */
+    int rc = 0;
+    if (memsz != filesz) {
+        rc = sys_alloc_region(child, (void*)va + filesz, memsz - filesz, perm);
+        if (rc) return rc;
+    }
+
+    if (filesz != 0) {
+        /* Allocate filesz in parent to UTEMP */
+        rc = sys_alloc_region(CURENVID, UTEMP, filesz, PROT_RW | PROT_X);
+        if (rc) return rc;
+
+        /* seek() fd to fileoffset  */
+        rc = seek(fd, fileoffset);
+        if (rc) return rc;
+
+        /* read filesz to UTEMP */
+        ssize_t read_count = read(fd, UTEMP, filesz);
+        if (read_count < 0 || read_count != filesz) {
+            return read_count < 0 ? read_count : -E_INVALID_EXE;
+        }
+
+        /* Map read section conents to child */
+        rc = sys_map_region(CURENVID, UTEMP, child, (void*)va, filesz, perm);
+        if (rc) return rc;
+
+        /* Unmap it from parent */
+        rc = sys_unmap_region(CURENVID, UTEMP, filesz);
+        if (rc) return rc;
+    }
 
     return 0;
 }

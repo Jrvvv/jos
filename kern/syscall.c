@@ -443,7 +443,35 @@ sys_ipc_recv(uintptr_t dstva, uintptr_t maxsize) {
 static int
 sys_env_set_trapframe(envid_t envid, struct Trapframe *tf) {
     // LAB 11: Your code here
+    struct Env* env = envs;
+    int rc = envid2env(envid, &env, false);
+    if (rc) return rc;
 
+    // check that memory is accessible
+    user_mem_assert(env, tf, sizeof(struct Trapframe), PROT_R);
+#ifdef SANITIZE_SHADOW_BASE
+    /* Kernel didn't unpoison the userspace addresses */
+    platform_asan_unpoison((void*)tf, sizeof(struct Trapframe));
+#endif
+
+    // force set the segment registers
+    tf->tf_ds = GD_UD | 3;
+    tf->tf_es = GD_UD | 3;
+    tf->tf_ss = GD_UD | 3;
+    tf->tf_cs = GD_UT | 3;
+
+    // clear "dangerous" rflags
+    tf->tf_rflags &= ~FL_IOPL_MASK; // IO access should not be allowed
+    tf->tf_rflags &= ~FL_NT;
+    tf->tf_rflags &= ~FL_RF;
+    tf->tf_rflags &= ~FL_VM;
+    tf->tf_rflags &= ~FL_VIF;
+    tf->tf_rflags &= ~FL_VIP;
+
+    // force set interrupt flag
+    tf->tf_rflags |= FL_IF;
+
+    nosan_memcpy(&env->env_tf, tf, sizeof(struct Trapframe));
     return 0;
 }
 
@@ -504,8 +532,8 @@ syscall(uintptr_t syscallno, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t
             return sys_exofork();
         case SYS_env_set_status:
             return sys_env_set_status(a1, a2);
-        // case SYS_env_set_trapframe:
-        //    return sys_env_set_trapframe(a1, a2);
+        case SYS_env_set_trapframe:
+            return sys_env_set_trapframe(a1, (struct Trapframe *)a2);
         case SYS_env_set_pgfault_upcall:
             return sys_env_set_pgfault_upcall(a1, (void*)a2);
         case SYS_yield:

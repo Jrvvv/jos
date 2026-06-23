@@ -62,7 +62,38 @@ foreach_shared_region(int (*fun)(void *start, void *end, void *arg), void *arg) 
     // LAB 11: Your code here:
 
     int res = 0;
-    (void)fun, (void)arg;
-
+    for (size_t pml4_idx = 0; pml4_idx < PT_ENTRY_COUNT; ++pml4_idx) {
+        uintptr_t va_pml4 = (pml4_idx << PML4_SHIFT);
+        if (!(uvpml4[VPML4(va_pml4)] & PTE_P)) continue;
+        for (size_t pdp_idx = 0; pdp_idx < PT_ENTRY_COUNT; ++pdp_idx) {
+            uintptr_t va_pdp = va_pml4 + (pdp_idx << PDP_SHIFT);
+            if (!(uvpdp[VPDP(va_pdp)] & PTE_P)) continue;
+            if (uvpdp[VPDP(va_pdp)] & PTE_PS) {
+                if (uvpdp[VPDP(va_pdp)] & PTE_SHARE) {
+                    res = fun((void*)va_pdp, (void*)va_pdp + (1 << PDP_SHIFT), arg);
+                    if (res) return res;
+                }
+                continue;
+            }
+            for (size_t pd_idx = 0; pd_idx < PT_ENTRY_COUNT; ++pd_idx) {
+                uintptr_t va_pd = va_pdp + (pd_idx << PD_SHIFT);
+                if (!(uvpd[VPD(va_pd)] & PTE_P)) continue;
+                if (uvpd[VPD(va_pd)] & PTE_PS) {
+                    if (uvpd[VPD(va_pd)] & PTE_SHARE) {
+                        res = fun((void*)va_pd, (void*)va_pd + (1 << PD_SHIFT), arg);
+                        if (res) return res;
+                    }
+                    continue;
+                }
+                for (size_t pt_idx = 0; pt_idx < PT_ENTRY_COUNT; ++pt_idx) {
+                    uintptr_t va_pt = va_pd + (pt_idx << PT_SHIFT);
+                    if (!(uvpt[VPT(va_pt)] & PTE_P)) continue;
+                    if (!(uvpt[VPT(va_pt)] & PTE_SHARE)) continue;
+                    res = fun((void*)va_pt, (void*)va_pt + (1 << PT_SHIFT), arg);
+                    if (res) return res;
+                }
+            }
+        }
+    }
     return res;
 }

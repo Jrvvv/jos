@@ -101,8 +101,9 @@ platform_asan_poison(void *addr, size_t size) {
 
 static int
 asan_unpoison_shared_region(void *start, void *end, void *arg) {
-    (void)start, (void)end, (void)arg;
     // LAB 8: Your code here
+    (void)arg;
+    platform_asan_unpoison(start, (size_t)(end - start));
     return 0;
 }
 

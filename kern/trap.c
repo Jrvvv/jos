@@ -34,8 +34,10 @@ extern void align_thndlr(void);   // T_ALIGN
 extern void mchk_thndlr(void);    // T_MCHK
 extern void simderr_thndlr(void); // T_SIMDERR
 
-extern void clock_thdlr(void);
-extern void timer_thdlr(void);
+extern void clock_thdlr(void);    // IRQ_OFFSET + IRQ_CLOCK
+extern void timer_thdlr(void);    // IRQ_OFFSET + IRQ_TIMER
+extern void kbd_thdlr(void);      // IRQ_OFFSET + IRQ_KBD
+extern void serial_thdlr(void);   // IRQ_OFFSET + IRQ_SERIAL
 
 extern void syscall_thndlr(void); // T_SYSCALL
 
@@ -126,6 +128,8 @@ trap_init(void) {
     clock_idt_init();
     // LAB 4: Your code here
     // LAB 5: Your code here
+    idt[IRQ_OFFSET + IRQ_TIMER] = GATE(0, GD_KT, (uintptr_t)timer_thdlr, 0);
+    idt[IRQ_OFFSET + IRQ_CLOCK] = GATE(0, GD_KT, (uintptr_t)clock_thdlr, 0);
 
     // LAB 8: Your code here
     /* Insert trap handlers into IDT */
@@ -148,9 +152,6 @@ trap_init(void) {
     idt[T_MCHK]     = GATE(0, GD_KT, (uintptr_t)mchk_thndlr, 0);
     idt[T_SIMDERR]  = GATE(0, GD_KT, (uintptr_t)simderr_thndlr, 0);
 
-    idt[IRQ_OFFSET + IRQ_TIMER] = GATE(0, GD_KT, (uintptr_t)timer_thdlr, 0);
-    idt[IRQ_OFFSET + IRQ_CLOCK] = GATE(0, GD_KT, (uintptr_t)clock_thdlr, 0);
-
     idt[T_SYSCALL]  = GATE(0, GD_KT, (uintptr_t)syscall_thndlr, 3);
 
     /* Setup #PF handler dedicated stack
@@ -161,6 +162,8 @@ trap_init(void) {
     idt[T_PGFLT].gd_ist = 1;
 
     // LAB 11: Your code here
+    idt[IRQ_OFFSET + IRQ_KBD] = GATE(0, GD_KT, (uintptr_t)kbd_thdlr, 0);
+    idt[IRQ_OFFSET + IRQ_SERIAL] = GATE(0, GD_KT, (uintptr_t)serial_thdlr, 0);
 
     /* Per-CPU setup */
     trap_init_percpu();
@@ -339,6 +342,12 @@ trap_dispatch(struct Trapframe *tf) {
         // LAB 11: Your code here
         /* Handle keyboard (IRQ_KBD + kbd_intr()) and
          * serial (IRQ_SERIAL + serial_intr()) interrupts. */
+    case IRQ_OFFSET + IRQ_KBD:
+        kbd_intr();
+        return;
+    case IRQ_OFFSET + IRQ_SERIAL:
+        serial_intr();
+        return;
     default:
         print_trapframe(tf);
         if (!(tf->tf_cs & 3))

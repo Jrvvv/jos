@@ -200,10 +200,12 @@ serve_read(envid_t envid, union Fsipc *ipc) {
     }
 
     // LAB 10: Your code here
+    size_t to_read = MIN(req->req_n, sizeof(ipc->readRet.ret_buf));
+
     if ((r = openfile_lookup(envid, req->req_fileid, &o)) < 0)
         return r;
 
-    r = file_read(o->o_file, ipc->readRet.ret_buf, req->req_n, o->o_fd->fd_offset);
+    r = file_read(o->o_file, ipc->readRet.ret_buf, to_read, o->o_fd->fd_offset);
     if (r >= 0)
         o->o_fd->fd_offset += r;
     return r;
