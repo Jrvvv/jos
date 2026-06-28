@@ -6,7 +6,8 @@ FSOFILES := 		$(OBJDIR)/fs/bc.o \
 			$(OBJDIR)/fs/serv.o \
 			$(OBJDIR)/fs/test.o \
 			$(OBJDIR)/fs/pci.o \
-			$(OBJDIR)/fs/nvme.o
+			$(OBJDIR)/fs/nvme.o \
+			$(OBJDIR)/fs/e1000.o
 
 FSIMGTXTFILES :=	fs/newmotd \
 			fs/motd \
@@ -37,7 +38,7 @@ USERAPPS :=		$(OBJDIR)/user/init \
 
 FSIMGFILES := $(FSIMGTXTFILES) $(USERAPPS)
 
-$(OBJDIR)/fs/%.o: fs/%.c fs/fs.h fs/pci.h fs/nvme.h inc/lib.h $(OBJDIR)/.vars.USER_CFLAGS
+$(OBJDIR)/fs/%.o: fs/%.c fs/fs.h fs/pci.h fs/nvme.h fs/e1000.h inc/lib.h $(OBJDIR)/.vars.USER_CFLAGS
 	@echo + cc[USER] $<
 	@mkdir -p $(@D)
 	$(V)$(CC) $(USER_CFLAGS) $(USER_SAN_CFLAGS) -c -o $@ $<

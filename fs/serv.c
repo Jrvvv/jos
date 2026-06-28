@@ -8,6 +8,7 @@
 
 #include "pci.h"
 #include "fs.h"
+#include "e1000.h"
 #include "nvme.h"
 
 /* The file system server maintains three structures
@@ -332,6 +333,8 @@ umain(int argc, char **argv) {
 
     pci_init(argv);
     nvme_init();
+    e1000_init();
+    e1000_test();
 
     /* Check that we are able to do I/O */
     outw(0x8A00, 0x8A00);
