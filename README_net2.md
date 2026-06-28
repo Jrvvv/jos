@@ -94,6 +94,7 @@ while (thisenv->env_ipc_recving)   // volatile-поле в UENVS
     net_poll();
 // когда отправитель вызовет sys_ipc_try_send(), он увидит
 // env_ipc_recving==1, запишет данные и сбросит флаг в 0
+// 69
 ```
 
 Результат:
