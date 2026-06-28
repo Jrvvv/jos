@@ -488,3 +488,15 @@ pci_init(char **argv) {
     /* Scan all busses starting at bus 0. */
     pci_check_busses(0, NULL);
 }
+
+/*
+ * Enable PCI Bus Mastering for a device.
+ *
+ * Required before the device can perform DMA: without this bit the
+ * chipset will NACK any memory writes initiated by the device.
+ */
+void
+pci_enable_busmaster(struct PciDevice *pcid) {
+    uint16_t cmd = pcie_io.read16(pcid, PCI_REG_COMMAND);
+    pcie_io.write16(pcid, PCI_REG_COMMAND, (uint16_t)(cmd | PCI_CMD_BUSMASTER));
+}

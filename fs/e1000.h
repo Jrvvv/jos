@@ -181,4 +181,8 @@ int e1000_recv(void *buf, size_t *len);
 /* Fill mac[0..5] with the NIC's hardware MAC address. */
 void e1000_get_mac(uint8_t mac[6]);
 
+/* Smoke test: send a broadcast frame and poll briefly for any reply.
+ * Called once during FS server initialisation to verify the driver works. */
+void e1000_test(void);
+
 #endif /* E1000_H */
