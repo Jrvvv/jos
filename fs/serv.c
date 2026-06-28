@@ -5,7 +5,6 @@
 
 #include <inc/x86.h>
 #include <inc/string.h>
-#include <inc/lib.h>
 
 #include "pci.h"
 #include "fs.h"
@@ -293,14 +292,24 @@ fshandler handlers[] = {
 
 void
 serve(void) {
-    uint32_t req, whom;
-    int perm, res;
+    int res;
     void *pg;
 
     while (1) {
-        perm = 0;
-        size_t sz = PAGE_SIZE;
-        req = ipc_recv((int32_t *)&whom, fsreq, &sz, &perm);
+        /* Arm IPC receiver without blocking, then poll network while
+         * waiting for a request.  This keeps the FS server RUNNABLE so
+         * the scheduler never halts the system, and ensures every incoming
+         * Ethernet frame is processed promptly regardless of FS load. */
+        sys_ipc_arm_recv(fsreq, PAGE_SIZE);
+
+        while (thisenv->env_ipc_recving)
+            net_poll();
+
+        /* IPC transfer complete — read sender info from shared envs[] page */
+        uint32_t req  = thisenv->env_ipc_value;
+        envid_t  whom = thisenv->env_ipc_from;
+        int      perm = thisenv->env_ipc_perm;
+
         if (debug) {
             cprintf("fs req %d from %08x [page %08lx: %s]\n",
                     req, whom, (unsigned long)get_uvpt_entry(fsreq),
@@ -310,7 +319,7 @@ serve(void) {
         /* All requests must contain an argument page */
         if (!(perm & PROT_R)) {
             cprintf("Invalid request from %08x: no argument page\n", whom);
-            continue; /* Just leave it hanging... */
+            continue;
         }
 
         pg = NULL;
@@ -346,25 +355,12 @@ umain(int argc, char **argv) {
     fs_init();
     fs_test();
 
-    /*
-     * Fork a child process to run the network stack.  The child calls
-     * e1000_init() again to take exclusive ownership of the NIC's DMA
-     * rings, then polls in a tight loop.  The parent continues as the
-     * normal FS IPC server.
-     *
-     * fork() is used (not sys_exofork directly) so that writable pages
-     * are copy-on-write and the child gets its own stack and globals.
-     * The child has env_type == ENV_TYPE_USER, so it does not interfere
-     * with FS server discovery (ipc_find_env(ENV_TYPE_FS)).
-     */
-    envid_t net_child = fork();
-    if (net_child < 0)
-        panic("net: fork failed: %d\n", net_child);
-    if (net_child == 0) {
-        binaryname = "net";
-        net_serve();
-        /* not reached */
-    }
+    /* Initialise the network stack (TCP state, print banner).
+     * net_poll() is called at the top of every serve() iteration so that
+     * incoming frames are processed between FS IPC requests.
+     * sys_map_physical_region() (used by e1000) requires ENV_TYPE_FS, so
+     * the network stack must run in this process — no fork needed. */
+    net_init();
 
     serve();
 }

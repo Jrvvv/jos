@@ -1,14 +1,21 @@
 /*
- * Network stack entry point.
+ * Network stack — runs inside the FS server process (ENV_TYPE_FS).
  *
- * net_serve() is called in a child process (forked from the FS server
- * after all hardware initialisation is complete).  It re-initialises the
- * e1000 NIC to take exclusive DMA ownership, then spins polling for
- * incoming Ethernet frames and dispatching them up the protocol stack.
+ * Architecture:
+ *   The FS server is the only user-space process allowed to call
+ *   sys_map_physical_region(), so the network stack lives here alongside
+ *   the e1000 driver.
  *
- * Global network identity:
- *   IP  : 192.168.56.101   (must match QEMU -netdev user,net=...,hostfwd=)
- *   MAC : 52:54:00:12:34:56 (fixed by QEMU -device e1000,mac=...)
+ *   net_init()  — called once in umain(), after e1000_init().
+ *   net_poll()  — called at the top of every serve() loop iteration to
+ *                 drain the NIC RX ring before blocking on ipc_recv().
+ *
+ * Between IPC requests the NIC buffers up to 16 frames in hardware;
+ * they are drained when the next IPC wakes the serve loop.
+ *
+ * Network identity (fixed for QEMU):
+ *   IP  : 192.168.56.101
+ *   MAC : 52:54:00:12:34:56
  */
 
 #include "net.h"
@@ -20,32 +27,23 @@
 
 /* Global network identity (read by all protocol layers) */
 uint8_t  net_our_mac[6] = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x56 };
-uint32_t net_our_ip     = NET_OUR_IP;   /* host byte order */
+uint32_t net_our_ip     = NET_OUR_IP;
 
-/* Receive scratch buffer (max Ethernet frame) */
 static uint8_t net_rx_buf[2048];
 
 void
-net_serve(void)
+net_init(void)
 {
-    /*
-     * Re-initialise the NIC so this child process owns the DMA rings.
-     * The parent still has the old DMA physical pages mapped (COW), but
-     * the NIC hardware now writes into our newly allocated pages.
-     */
-    e1000_init();
-
     tcp_init();
+    cprintf("net: stack ready  IP=192.168.56.101  MAC=52:54:00:12:34:56\n");
+    cprintf("net: HTTP on port 80, UDP echo on ports 7 and %d\n", UDP_PORT_TEST);
+}
 
-    cprintf("net: stack started  IP=192.168.56.101  MAC=52:54:00:12:34:56\n");
-    cprintf("net: HTTP server on port 80\n");
-    cprintf("net: UDP echo on port 7 and %d\n", UDP_PORT_TEST);
-
-    while (1) {
-        size_t len;
-        if (e1000_recv(net_rx_buf, &len) == 0)
-            eth_input(net_rx_buf, len);
-        else
-            sys_yield();   /* no packet — give other environments a turn */
-    }
+void
+net_poll(void)
+{
+    /* Drain all pending frames from the NIC RX ring */
+    size_t len;
+    while (e1000_recv(net_rx_buf, &len) == 0)
+        eth_input(net_rx_buf, len);
 }

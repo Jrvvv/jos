@@ -47,7 +47,10 @@ static inline uint32_t ntohl(uint32_t v) { return __builtin_bswap32(v); }
 void arp_update(uint32_t ip, const uint8_t mac[6]);
 int  arp_lookup(uint32_t ip, uint8_t mac_out[6]);
 
-/* Main network polling loop (runs in child process after fork) */
-void net_serve(void);
+/* Initialise network state (call once after e1000_init) */
+void net_init(void);
+
+/* Poll for one received frame and dispatch it; call in the serve loop */
+void net_poll(void);
 
 #endif /* NET_H */

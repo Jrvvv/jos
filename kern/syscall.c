@@ -409,6 +409,23 @@ sys_ipc_try_send(envid_t envid, uint32_t value, uintptr_t srcva, size_t size, in
  *  -E_INVAL if dstva < MAX_USER_ADDRESS but dstva is not page-aligned;
  *  -E_INVAL if dstva is valid and maxsize is 0,
  *  -E_INVAL if maxsize is not page aligned. */
+/* Non-blocking variant of sys_ipc_recv.
+ * Arms the receiver (sets env_ipc_recving=1) but does NOT block.
+ * The caller should poll thisenv->env_ipc_recving via UENVS to detect
+ * when a sender has completed the transfer (recving goes to 0). */
+static int
+sys_ipc_arm_recv(uintptr_t dstva, uintptr_t maxsize) {
+    if (dstva < MAX_USER_ADDRESS) {
+        if (dstva & CLASS_MASK(0)) return -E_INVAL;
+        if (!maxsize) return -E_INVAL;
+        if (maxsize & CLASS_MASK(0)) return -E_INVAL;
+    }
+    curenv->env_ipc_dstva   = dstva;
+    curenv->env_ipc_maxsz   = maxsize;
+    curenv->env_ipc_recving = 1;
+    return 0;
+}
+
 static int
 sys_ipc_recv(uintptr_t dstva, uintptr_t maxsize) {
     // LAB 9: Your code here
@@ -551,6 +568,8 @@ syscall(uintptr_t syscallno, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t
             return sys_ipc_try_send(a1, a2, a3, a4, a5);
         case SYS_ipc_recv:
             return sys_ipc_recv(a1, a2);
+        case SYS_ipc_arm_recv:
+            return sys_ipc_arm_recv(a1, a2);
         case SYS_gettime:
             return sys_gettime();
         default:
