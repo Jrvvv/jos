@@ -5,11 +5,13 @@
 
 #include <inc/x86.h>
 #include <inc/string.h>
+#include <inc/lib.h>
 
 #include "pci.h"
 #include "fs.h"
 #include "e1000.h"
 #include "nvme.h"
+#include "net.h"
 
 /* The file system server maintains three structures
  * for each open file.
@@ -343,5 +345,26 @@ umain(int argc, char **argv) {
     serve_init();
     fs_init();
     fs_test();
+
+    /*
+     * Fork a child process to run the network stack.  The child calls
+     * e1000_init() again to take exclusive ownership of the NIC's DMA
+     * rings, then polls in a tight loop.  The parent continues as the
+     * normal FS IPC server.
+     *
+     * fork() is used (not sys_exofork directly) so that writable pages
+     * are copy-on-write and the child gets its own stack and globals.
+     * The child has env_type == ENV_TYPE_USER, so it does not interfere
+     * with FS server discovery (ipc_find_env(ENV_TYPE_FS)).
+     */
+    envid_t net_child = fork();
+    if (net_child < 0)
+        panic("net: fork failed: %d\n", net_child);
+    if (net_child == 0) {
+        binaryname = "net";
+        net_serve();
+        /* not reached */
+    }
+
     serve();
 }

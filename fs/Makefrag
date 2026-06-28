@@ -7,7 +7,15 @@ FSOFILES := 		$(OBJDIR)/fs/bc.o \
 			$(OBJDIR)/fs/test.o \
 			$(OBJDIR)/fs/pci.o \
 			$(OBJDIR)/fs/nvme.o \
-			$(OBJDIR)/fs/e1000.o
+			$(OBJDIR)/fs/e1000.o \
+			$(OBJDIR)/fs/net.o \
+			$(OBJDIR)/fs/net_eth.o \
+			$(OBJDIR)/fs/net_arp.o \
+			$(OBJDIR)/fs/net_ip.o \
+			$(OBJDIR)/fs/net_icmp.o \
+			$(OBJDIR)/fs/net_udp.o \
+			$(OBJDIR)/fs/net_tcp.o \
+			$(OBJDIR)/fs/net_http.o
 
 FSIMGTXTFILES :=	fs/newmotd \
 			fs/motd \

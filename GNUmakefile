@@ -333,7 +333,7 @@ QEMUOPTS += -device e1000,netdev=net0,mac=52:54:00:12:34:56 \
             -netdev tap,id=net0,ifname=$(TAP_NAME),script=no,downscript=no
 else
 QEMUOPTS += -device e1000,netdev=net0,mac=52:54:00:12:34:56 \
-            -netdev user,id=net0,net=192.168.56.0/24,host=192.168.56.1,hostfwd=udp::10001-:10001
+            -netdev user,id=net0,net=192.168.56.0/24,host=192.168.56.1,hostfwd=udp::10001-:10001,hostfwd=tcp::8080-:80
 endif
 # QEMUOPTS += -debugcon file:$(UEFIDIR)/debug.log -global isa-debugcon.iobase=0x402
 
