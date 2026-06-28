@@ -323,6 +323,18 @@ IMAGES = $(OVMF_FIRMWARE) $(JOS_LOADER) $(OBJDIR)/kern/kernel $(JOS_ESP)/EFI/BOO
 QEMUOPTS += -drive file=$(OBJDIR)/fs/fs.img,if=none,id=nvm -device nvme,serial=deadbeef,drive=nvm
 IMAGES += $(OBJDIR)/fs/fs.img
 QEMUOPTS += -bios $(OVMF_FIRMWARE)
+
+# Networking: QEMUNET=user (default, no root) or QEMUNET=tap (requires TAP setup).
+# MAC is fixed so Part 2 can hardcode an ARP table entry.
+QEMUNET ?= user
+TAP_NAME ?= tap0
+ifeq ($(QEMUNET),tap)
+QEMUOPTS += -device e1000,netdev=net0,mac=52:54:00:12:34:56 \
+            -netdev tap,id=net0,ifname=$(TAP_NAME),script=no,downscript=no
+else
+QEMUOPTS += -device e1000,netdev=net0,mac=52:54:00:12:34:56 \
+            -netdev user,id=net0,net=192.168.56.0/24,host=192.168.56.1,hostfwd=udp::10001-:10001
+endif
 # QEMUOPTS += -debugcon file:$(UEFIDIR)/debug.log -global isa-debugcon.iobase=0x402
 
 define POST_CHECKOUT
@@ -399,6 +411,14 @@ print-qemu:
 print-gdbport:
 	@echo $(GDBPORT)
 
+# Create and configure a TAP device for observing NIC traffic with Wireshark/tshark.
+# Usage: make tap-setup [TAP_NAME=tap0]
+# Teardown: sudo ip link delete $(TAP_NAME)
+tap-setup:
+	sudo ip tuntap add $(TAP_NAME) mode tap user $(shell whoami)
+	sudo ip link set $(TAP_NAME) up
+	sudo ip addr add 192.168.56.1/24 dev $(TAP_NAME)
+
 format:
 	@find . -name *.[ch] -not -path "./LoaderPkg/*" -exec $(CLANGPREFIX)clang-format -i {} \;
 
@@ -458,4 +478,4 @@ $(OBJDIR)/.deps: $(foreach dir, $(OBJDIRS), $(wildcard $(OBJDIR)/$(dir)/*.d))
 always:
 	@:
 
-.PHONY: all always clean realclean distclean grade
+.PHONY: all always clean realclean distclean grade tap-setup
